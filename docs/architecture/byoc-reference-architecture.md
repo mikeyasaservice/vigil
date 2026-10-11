@@ -21,7 +21,7 @@ key-service and workload-identity interfaces; domain logic uses none of their AR
 
 ## AWS reference (design, not provisioned)
 
-Customer bootstraps a versioned OpenTofu module in their account, approves the plan,
+Customer bootstraps a versioned Pulumi Go program in their account, approves the preview,
 retains encrypted/locked state locally and supplies the tenant/deployment registration.
 Use a customer VPC, private application/worker subnets, dedicated EKS cluster or an
 approved customer Kubernetes environment, RDS PostgreSQL, tenant-local Redis, S3,

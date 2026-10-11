@@ -869,6 +869,10 @@ observability:
 # that was previously implicitly allowed. Plan the rollout.
 networkPolicies:
   enabled: false
+  # Managed execution selects a deny-by-default egress posture. The standalone
+  # chart keeps its historical permissive egress until callers provide a full
+  # integration allow-list.
+  managedExecution: false
   # Namespace selector used to allow ingress traffic from the ingress
   # controller's namespace. Defaults match a common nginx-ingress install;
   # adjust if your controller runs elsewhere or lives in the same namespace.

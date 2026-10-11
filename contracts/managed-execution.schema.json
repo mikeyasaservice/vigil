@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vigil.example/contracts/managed-execution-v2.json",
+  "title": "Managed execution queue envelope v2",
+  "type": "object",
+  "required": ["schema_version", "admission", "execution_id", "reason", "references", "signature"],
+  "properties": {
+    "schema_version": {"const": 2},
+    "execution_id": {"type": "string", "minLength": 16, "maxLength": 128},
+    "reason": {"enum": ["start", "resume"]},
+    "references": {"type": "object", "additionalProperties": {"type": "string", "maxLength": 256}},
+    "signature": {"type": "string", "minLength": 32},
+    "admission": {
+      "type": "object",
+      "required": ["schema_version", "admission_id", "context", "workflow_id", "workflow_digest", "program_id", "program_digest", "request_digest", "issued_at", "expires_at", "revocation_epoch"],
+      "properties": {
+        "schema_version": {"const": 2},
+        "admission_id": {"type": "string", "minLength": 1},
+        "workflow_id": {"type": "string", "minLength": 1},
+        "workflow_digest": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "program_id": {"type": "string", "minLength": 1},
+        "program_digest": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "request_digest": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "issued_at": {"type": "string", "format": "date-time"},
+        "expires_at": {"type": "string", "format": "date-time"},
+        "revocation_epoch": {"type": "integer", "minimum": 0},
+        "context": {
+          "type": "object",
+          "required": ["tenant_id", "deployment_id", "subject_id", "issuer", "roles", "membership_version", "policy_version", "request_id"],
+          "properties": {
+            "tenant_id": {"type": "string", "minLength": 1},
+            "deployment_id": {"type": "string", "minLength": 1},
+            "subject_id": {"type": "string", "minLength": 1},
+            "issuer": {"type": "string", "minLength": 1},
+            "roles": {"type": "array", "items": {"type": "string"}},
+            "membership_version": {"type": "integer", "minimum": 1},
+            "policy_version": {"type": "string", "minLength": 1},
+            "request_id": {"type": "string", "minLength": 1}
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

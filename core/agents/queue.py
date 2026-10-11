@@ -54,8 +54,9 @@ def build_start_job(
     request: Dict[str, Any],
     enqueued_by: str,
     tenant_id: Optional[str] = None,
+    managed_envelope: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    return {
+    job = {
         "schema_version": JOB_SCHEMA_VERSION,
         "run_id": run_id,
         "run_kind": run_kind,
@@ -65,6 +66,9 @@ def build_start_job(
         "reason": "start",
         "request": request,
     }
+    if managed_envelope is not None:
+        job["managed"] = managed_envelope
+    return job
 
 
 # A resume carries no request: the ledger holds the spec, and what unblocks the
@@ -74,8 +78,9 @@ def build_resume_job(
     run_kind: str,
     enqueued_by: str,
     tenant_id: Optional[str] = None,
+    managed_envelope: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    return {
+    job = {
         "schema_version": JOB_SCHEMA_VERSION,
         "run_id": run_id,
         "run_kind": run_kind,
@@ -84,6 +89,9 @@ def build_resume_job(
         "enqueued_by": enqueued_by,
         "reason": "resume",
     }
+    if managed_envelope is not None:
+        job["managed"] = managed_envelope
+    return job
 
 
 _queues: "WeakKeyDictionary[asyncio.AbstractEventLoop, Queue]" = WeakKeyDictionary()

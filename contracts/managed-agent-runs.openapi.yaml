@@ -1,0 +1,136 @@
+openapi: 3.1.0
+info:
+  title: Vigil Managed Agent Runs
+  version: 2.0.0
+  description: Managed admission surface. Tenant identity is resolved server-side.
+servers:
+  - url: /
+paths:
+  /api/v2/agent-runs:
+    get:
+      operationId: listManagedAgentRuns
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Runs owned by the authenticated subject
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ManagedRunListResponse' }
+    post:
+      operationId: startManagedAgentRun
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ManagedStartRequest' }
+      responses:
+        '202':
+          description: Signed admission accepted for queue delivery
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ManagedStartResponse' }
+        '403': { description: Membership or admission denied }
+        '503': { description: Security or queue authority unavailable }
+  /api/v2/agent-runs/{run_id}:
+    get:
+      operationId: getManagedAgentRun
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/RunId' }
+      responses:
+        '200':
+          description: Managed run status
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ManagedRunResponse' }
+        '404': { description: Run not found }
+  /api/v2/agent-runs/{run_id}/cancel:
+    post:
+      operationId: cancelManagedAgentRun
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/RunId' }
+      responses:
+        '200':
+          description: Run cancelled and tenant epoch advanced
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ManagedRunResponse' }
+  /api/v2/agent-runs/{run_id}/approve:
+    post:
+      operationId: approveManagedAgentRun
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/RunId' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ManagedApprovalRequest' }
+      responses:
+        '200':
+          description: Approval bound to the requested execution action
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ManagedRunResponse' }
+        '403': { description: Requesting subject cannot approve its own action }
+  /api/v2/agent-runs/{run_id}/resume:
+    post:
+      operationId: resumeManagedAgentRun
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/RunId' }
+      responses:
+        '202':
+          description: Original managed ownership and pinned versions are resumed
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ManagedRunResponse' }
+components:
+  securitySchemes:
+    bearerAuth: { type: http, scheme: bearer }
+  parameters:
+    RunId: { name: run_id, in: path, required: true, schema: { type: string, format: uuid } }
+  schemas:
+    ManagedStartRequest:
+      type: object
+      additionalProperties: false
+      required: [finding_ids]
+      properties:
+        workflow_id: { type: string, const: triage-v1 }
+        finding_ids: { type: array, minItems: 1, maxItems: 100, items: { type: string } }
+        prompt: { type: string, maxLength: 4000 }
+    ManagedStartResponse:
+      type: object
+      required: [run_id, job_id, execution_id, tenant_id, deployment_id]
+      properties:
+        run_id: { type: string, format: uuid }
+        job_id: { type: string }
+        execution_id: { type: string }
+        tenant_id: { type: string }
+        deployment_id: { type: string }
+    ManagedRunResponse:
+      type: object
+      required: [run_id, execution_id, tenant_id, deployment_id, status, workflow_id]
+      properties:
+        run_id: { type: string, format: uuid }
+        execution_id: { type: string }
+        tenant_id: { type: string }
+        deployment_id: { type: string }
+        status: { type: string, enum: [queued, running, cancelled, succeeded, failed] }
+        workflow_id: { type: string, const: triage-v1 }
+    ManagedRunListResponse:
+      type: object
+      required: [runs, count]
+      properties:
+        runs: { type: array, items: { $ref: '#/components/schemas/ManagedRunResponse' } }
+        count: { type: integer, minimum: 0 }
+    ManagedApprovalRequest:
+      type: object
+      additionalProperties: false
+      required: [action, resource, argument_digest]
+      properties:
+        action: { type: string, minLength: 1, maxLength: 200 }
+        resource: { type: string, minLength: 1, maxLength: 500 }
+        argument_digest: { type: string, minLength: 1, maxLength: 128 }

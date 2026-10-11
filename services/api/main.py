@@ -494,6 +494,10 @@ async def _startup(app: FastAPI):
     logger.info("Starting Vigil SOC Backend")
     logger.info("=" * 60)
 
+    from core.api.v2.agent_runs_router import validate_managed_startup
+
+    validate_managed_startup()
+
     _build_services(app)
     _announce_mcp_surface()
 

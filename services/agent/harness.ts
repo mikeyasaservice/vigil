@@ -1,6 +1,6 @@
 import OpenAI from "openai";
 import type { RunKind } from "./contracts/events.js";
-import type { ToolPrincipal } from "./contracts/tool.js";
+import type { RegisteredTool, ToolPrincipal } from "./contracts/tool.js";
 import { budgetOf, FRESH, unmeteredQuota, type Seed } from "./core/budget.js";
 import { httpPrices } from "./core/prices.js";
 import { Limiter } from "./core/limiter.js";
@@ -9,6 +9,8 @@ import { nullMemory } from "./core/memory.js";
 import { httpRecall } from "./core/recall.js";
 import { registryOf } from "./core/registry.js";
 import { remoteDispatch } from "./core/remote.js";
+import { managedAuthorizer, type ManagedGatewayClient, type ManagedGrant } from "./core/managed-gateway.js";
+import { httpReasoner } from "./core/reasoner.js";
 import type { Memory, State } from "./core/seams.js";
 import type { RunSpec } from "./core/spec.js";
 import { httpVirtualKey } from "./core/vk.js";
@@ -80,6 +82,30 @@ export function harnessFor<K extends Record<string, unknown>>(
   principal?: ToolPrincipal,
 ): Harness<K> {
   const tools = process.env["VIGIL_TOOLS_URL"] ?? "http://localhost:6987/internal/tools/invoke";
+  const managed = process.env["VIGIL_EXECUTION_PROFILE"] === "managed";
+  let authorize: ((tool: RegisteredTool, args: Record<string, unknown>, signal?: AbortSignal) => Promise<void>) | undefined;
+  // A grant is intentionally supplied by the trusted worker bootstrap, never by a
+  // request. If it is absent, managed dispatch fails closed before any network I/O.
+  const rawGrant = process.env["VIGIL_MANAGED_TOOL_GRANT"];
+  if (managed && rawGrant !== undefined) {
+    try {
+      const grant = JSON.parse(rawGrant) as ManagedGrant;
+      const client: ManagedGatewayClient = {
+        async authorize(input, signal) {
+          const response = await fetch(process.env["VIGIL_MANAGED_GATEWAY_URL"] ?? "http://security:8080/v1/authorize", {
+            method: "POST",
+            headers: { "content-type": "application/json", authorization: `Bearer ${internalToken()}` },
+            body: JSON.stringify(input),
+            signal,
+          });
+          if (!response.ok) throw new Error(`managed gateway denied (${response.status})`);
+        },
+      };
+      authorize = managedAuthorizer(client, grant, grant.execution_id);
+    } catch {
+      authorize = undefined;
+    }
+  }
   return {
     // Bare id for pricing, namespaced id on the wire — see openAiSurface. Without
     // the namespace the gateway matched "gemini-2.5-flash" to whichever provider
@@ -89,7 +115,13 @@ export function harnessFor<K extends Record<string, unknown>>(
     // model's name priced a paid "llama" on a commercial host at $0.
     provider: openAiSurface(client, spec.model, limiter, spec.provider ?? "bifrost", wireModel(spec), vk, spec.effort),
     registry: registryOf(toolsFrom(spec.tools), grantsFor(kind, spec)),
-    dispatch: remoteDispatch({ url: tools, token: internalToken(), ...(principal === undefined ? {} : { principal }) }),
+    dispatch: remoteDispatch({
+      url: tools,
+      token: internalToken(),
+      ...(principal === undefined ? {} : { principal }),
+      ...(managed ? { managed: true, ...(authorize === undefined ? {} : { authorize }) } : {}),
+    }),
+    ...(managed ? { reasoner: httpReasoner({ url: process.env["VIGIL_REASONER_URL"] ?? "http://reasoner:8080/v1/evaluate", token: process.env["VIGIL_REASONER_INTERNAL_TOKEN"] ?? "" }) } : {}),
     budget: budgetOf(spec.budgets, unmeteredQuota, Date.now, seed, prices),
     // Wrapped rather than replaced: whatever the caller passed still answers the
     // cue-shaped recall, and the keyed read is added over the same endpoint the

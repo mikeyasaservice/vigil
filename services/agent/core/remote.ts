@@ -6,6 +6,9 @@ export interface RemoteOptions {
   token: string;
   // Sent with every call when present; left off the body entirely when not.
   principal?: ToolPrincipal;
+  /** Managed profile requires an independent grant even for local tools. */
+  managed?: boolean;
+  authorize?: (tool: RegisteredTool, args: Record<string, unknown>, signal?: AbortSignal) => Promise<void>;
   fetch?: typeof globalThis.fetch;
 }
 
@@ -70,6 +73,19 @@ export function remoteDispatch(options: RemoteOptions): ToolDispatch {
     invoke: async (tool: RegisteredTool, args: Record<string, unknown>, signal?: AbortSignal): Promise<ToolResult> => {
       // A tool the registry answers itself never leaves the process: every call routes
       // through this dispatch, so a local implementation was otherwise unreachable.
+      if (options.managed) {
+        if (options.authorize === undefined) return { ok: false, failure: { kind: "refused", detail: "managed authorization is unavailable" } };
+        try {
+          await options.authorize(tool, args, signal);
+        } catch (error) {
+          return { ok: false, failure: { kind: "refused", detail: error instanceof Error ? error.message : String(error) } };
+        }
+        // Local tools are pure computations only when explicitly named. A local
+        // implementation that can reach an integration is never a managed bypass.
+        if (tool.local && !tool.id.startsWith("pure:")) {
+          return { ok: false, failure: { kind: "refused", detail: "managed profile forbids unclassified local tools" } };
+        }
+      }
       if (tool.local) return tool.invoke(args);
 
       // The tool's timeout and the run's abort both end this call, so whichever

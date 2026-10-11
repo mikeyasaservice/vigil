@@ -1,0 +1,5 @@
+config:
+  vigil-phase2-lab:cluster: vigil-phase2
+  vigil-phase2-lab:kubeContext: kind-vigil-phase2
+  vigil-phase2-lab:localstackEndpoint: http://127.0.0.1:4566
+  # Configure the disposable kubeconfig with `pulumi config set --secret kubeconfig ...`.

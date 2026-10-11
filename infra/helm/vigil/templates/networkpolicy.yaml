@@ -26,9 +26,15 @@ spec:
   policyTypes:
     - Ingress
     - Egress
-  # Default: allow all egress (locked down per-component below).
+  # Standalone compatibility keeps the historical posture. Managed execution
+  # intentionally has no implicit egress; its overlay must enumerate DNS,
+  # queue, database, reasoner, and connector destinations.
   egress:
+    {{- if .Values.networkPolicies.managedExecution }}
+    []
+    {{- else }}
     - {}
+    {{- end }}
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy

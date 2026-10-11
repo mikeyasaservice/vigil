@@ -1,0 +1,3 @@
+name: vigil-phase2-lab
+runtime: go
+description: Disposable two-tenant Phase 2 security lab (kind/Cilium + LocalStack adapters)

@@ -1,0 +1,51 @@
+{
+  "info": {
+    "name": "Vigil Managed Agent Runs (local)",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "Filesystem-derived collection for the managed v2 OpenAPI boundary. Never publish credentials or this collection to a shared workspace."
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:6987" },
+    { "key": "runId", "value": "00000000-0000-0000-0000-000000000000" },
+    { "key": "accessToken", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "Start triage",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": { "mode": "raw", "raw": "{\n  \"workflow_id\": \"triage-v1\",\n  \"finding_ids\": [\"finding-a-1\"],\n  \"prompt\": \"Review this synthetic finding\"\n}" },
+        "url": { "raw": "{{baseUrl}}/api/v2/agent-runs", "host": ["{{baseUrl}}"], "path": ["api", "v2", "agent-runs"] }
+      },
+      "event": [{ "listen": "test", "script": { "exec": ["pm.test('accepted', () => pm.response.to.have.status(202));"] } }]
+    },
+    {
+      "name": "List owned runs",
+      "request": {
+        "method": "GET",
+        "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+        "url": { "raw": "{{baseUrl}}/api/v2/agent-runs", "host": ["{{baseUrl}}"], "path": ["api", "v2", "agent-runs"] }
+      }
+    },
+    {
+      "name": "Get run",
+      "request": {
+        "method": "GET",
+        "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+        "url": { "raw": "{{baseUrl}}/api/v2/agent-runs/{{runId}}", "host": ["{{baseUrl}}"], "path": ["api", "v2", "agent-runs", "{{runId}}"] }
+      }
+    },
+    {
+      "name": "Cancel run",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+        "url": { "raw": "{{baseUrl}}/api/v2/agent-runs/{{runId}}/cancel", "host": ["{{baseUrl}}"], "path": ["api", "v2", "agent-runs", "{{runId}}", "cancel"] }
+      }
+    }
+  ]
+}

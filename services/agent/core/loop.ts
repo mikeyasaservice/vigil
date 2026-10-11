@@ -6,6 +6,7 @@ import type { Message, Provider } from "./provider.js";
 import type { Registry } from "./registry.js";
 import type { Wrapped } from "./security.js";
 import type { Memory, State, ToolDispatch } from "./seams.js";
+import type { Reasoner } from "./reasoner.js";
 
 // A checkpoint a gated call raised, so a run parked on approval can be found by
 // class alone. Workflow classes are the workflow's; this one is the harness's.
@@ -18,6 +19,8 @@ export type Status = "completed" | "waiting_approval" | "failed";
 // beside the four seams because they are injected on the same terms.
 export interface Harness<Kinds extends Record<string, unknown> = Record<never, never>> {
   provider: Provider;
+  /** Optional typed DSPy adapter; the harness never grants it tool authority. */
+  reasoner?: Reasoner;
   registry: Registry;
   dispatch: ToolDispatch;
   budget: Budget;

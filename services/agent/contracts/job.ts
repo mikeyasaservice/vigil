@@ -9,6 +9,16 @@ export const JOB_SCHEMA_VERSION = 1;
 // its Python library accepts it and writes the keys anyway. Keys are bull:agent-runs:*.
 export const RUN_QUEUE = "agent-runs";
 
+/** Signed admission produced by the tenant-local managed authority. */
+export interface ManagedQueueEnvelope {
+  schema_version: 2;
+  admission: Record<string, unknown>;
+  execution_id: string;
+  reason: "start" | "resume";
+  references: Record<string, string>;
+  signature: string;
+}
+
 interface JobBase {
   schema_version: number;
   run_id: string;
@@ -16,6 +26,8 @@ interface JobBase {
   tenant_id: string | null;
   enqueued_at: string;
   enqueued_by: string;
+  /** Absent on the frozen standalone v1 queue contract. */
+  managed?: ManagedQueueEnvelope;
 }
 
 // References rather than resolved content: the worker resolves them and journals
@@ -25,6 +37,7 @@ export interface StartRequest {
   playbook: string;
   config: string;
   prompt: string;
+  finding_ids?: string[];
   overrides?: Record<string, unknown>;
   // What the caller wants tested, beside what the playbook states. Per-run, so it is
   // not resolvable from the reference.

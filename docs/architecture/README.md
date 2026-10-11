@@ -20,7 +20,7 @@ the control plane, DSPy runtime, secure harness, or BYOC connector has been impl
 | D04 | A local trusted capability gateway is the only privileged agent tool route | Reasoning and prompts cannot enforce authorization |
 | D05 | DSPy runs inside each data plane with approved, pinned artifacts | Sensitive optimization examples and invocation context stay local |
 | D06 | Outbound mutually authenticated BYOC management; locally constrained signed commands | Customer can revoke management without disabling local enforcement |
-| D07 | Versioned DeploymentManifest + reconciler adapter; OpenTofu infrastructure, Helm application releases | Reuse the chart while isolating provider-specific provisioning |
+| D07 | Versioned DeploymentManifest + reconciler adapter; Pulumi Go infrastructure, Helm application releases | Reuse the chart while isolating provider-specific provisioning |
 | D08 | Add shared services incrementally in Phase 4 | Dedicated execution workers remain required; shared rows are not the default |
 | D09 | Immutable artifact digests and independent app/infrastructure/policy/program revisions | Support tenant-specific promotion, compatibility checks and recovery |
 
@@ -44,6 +44,7 @@ customer demand has not yet been supplied.
 6. [Fleet](../operations/fleet-management.md), [upgrades](../operations/upgrade-and-rollback.md),
    [recovery](../operations/backup-and-recovery.md), [offboarding](../operations/tenant-offboarding.md),
    [migration and phased delivery](migration-strategy.md).
+7. [Phase 2 implementation and validation](phase2-validation.md).
 
 ## Validation meaning
 

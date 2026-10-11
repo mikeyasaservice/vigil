@@ -1,0 +1,6 @@
+# Runtime pins for the tenant-local reasoner image. The service must be built
+# from this file and its lock digest recorded in the approved program manifest.
+dspy-ai==2.6.27
+fastapi==0.115.12
+uvicorn==0.34.2
+pydantic==2.11.3

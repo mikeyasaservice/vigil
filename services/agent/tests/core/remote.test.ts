@@ -49,6 +49,13 @@ describe("a tool this process answers itself", () => {
     expect(sent).toHaveLength(0);
     expect(result).toEqual({ ok: true, rows: [{ evidence_id: "ev-1" }], rowCount: 1, capped: false, sourceSystem: "ledger" });
   });
+
+  it("cannot bypass the gateway in the managed profile", async () => {
+    const { fetch, sent } = answering({ ok: true, rows: [], rowCount: 0, capped: false, sourceSystem: "vigil" });
+    const result = await remoteDispatch({ url: "http://gateway", token: "shhh", fetch, managed: true, authorize: async () => {} }).invoke(LOCAL, {});
+    expect(sent).toHaveLength(0);
+    expect(result).toEqual({ ok: false, failure: { kind: "refused", detail: "managed profile forbids unclassified local tools" } });
+  });
 });
 
 describe("a tool that runs in the other process", () => {

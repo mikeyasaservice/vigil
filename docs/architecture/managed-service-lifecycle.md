@@ -8,14 +8,14 @@ apply authority. No tenant-facing API accepts arbitrary IaC, shell or Helm overr
 
 ## Tooling choice
 
-Use **OpenTofu** for the initial account/network/database/storage/key modules and
-**Helm** for the Vigil application. Terraform is an alternative if customer platform
-standards require it; qualify versions, providers and state compatibility rather than
-assuming a state file is interchangeable. Separate provider modules and pin provider
-locks/module digests. Both tools need a reconciler/operation journal; neither alone is
-a fleet control plane. OpenTofu state locking depends on backend support, and sensitive
-values can remain in state. [State locking](https://opentofu.org/docs/language/state/locking/),
-[sensitive state](https://opentofu.org/docs/language/state/sensitive-data/).
+Use **Pulumi Go** for the initial account/network/database/storage/key modules and
+**Helm** for the Vigil application. Terraform or OpenTofu are alternatives only if
+customer platform standards require them; qualify versions, providers and state
+compatibility rather than assuming a state file is interchangeable. Separate provider
+modules and pin provider locks/module digests. Both tools need a reconciler/operation
+journal; neither alone is a fleet control plane. Pulumi state locking depends on backend
+support, and sensitive values can remain in state. [Pulumi state and secrets](https://www.pulumi.com/docs/concepts/state/),
+[Pulumi Go](https://www.pulumi.com/docs/iac/languages-sdks/go/).
 
 Reuse `infra/helm/vigil` for application components, external Postgres/Redis, probes,
 Secrets references and autoscaling. Managed overlays must fix the audited network

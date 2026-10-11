@@ -44,8 +44,9 @@ def _short_name(path: Path) -> str:
     # resolve to distinct short names — otherwise _router_map rejects the pair
     # as an ambiguous collision. The mount prefix comes from ROUTER_META, not
     # this name, so namespacing here changes only discovery order and logs.
-    if _V1_DIR in path.parents:
-        return f"v1_{base}"
+    for parent in path.parents:
+        if parent.parent == _CORE_DIR / "api" and parent.name.startswith("v"):
+            return f"{parent.name}_{base}"
     return base
 
 

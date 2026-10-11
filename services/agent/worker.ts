@@ -37,6 +37,7 @@ import type { HuntKinds } from "./workflows/hunt/ledger.js";
 import type { DirectiveQueue } from "./workflows/hunt/ports.js";
 import { InProcessDirectiveQueue } from "./workflows/hunt/directives.js";
 import { DirectiveRepository } from "./ledger/directives.js";
+import { ManagedAdmissionError, claimManagedExecution, verifyManagedJob } from "./core/managed.js";
 
 const log = logger("agent.worker");
 
@@ -569,9 +570,13 @@ export async function sweepOnce(leases: Leases, queue: Enqueue, limit = 50): Pro
 // advance() still throws the original error; this is the only place that wraps it.
 export async function handle(state: State, leases: Leases, job: RunJob, directives: DirectiveQueue, build: HarnessFactory = harnessFor): Promise<void> {
   try {
+    // A managed job is admitted before any file, playbook, or ledger access.
+    // Standalone v1 jobs remain on their frozen path until the managed profile is enabled.
+    verifyManagedJob(job);
+    claimManagedExecution(job);
     await advance(state, leases, job, build, directives);
   } catch (error) {
-    if (error instanceof SpecError || error instanceof GatewayExhausted) {
+    if (error instanceof SpecError || error instanceof GatewayExhausted || error instanceof ManagedAdmissionError) {
       throw Object.assign(new UnrecoverableError(error.message), { cause: error });
     }
     throw error;
