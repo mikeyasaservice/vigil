@@ -5,9 +5,7 @@ from pathlib import Path
 
 import pytest
 import yaml
-
 from services.management.contracts import DeploymentManifest
-
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -39,3 +37,13 @@ def test_postman_collection_is_derived_from_every_openapi_operation() -> None:
         if method in {"get", "post", "put", "patch", "delete"}
     }
     assert {item["name"] for item in collection["item"]} == expected
+
+
+def test_openapi_embeds_the_authoritative_deployment_manifest_schema() -> None:
+    source = json.loads((ROOT / "contracts/deployment-manifest.schema.json").read_text())
+    source.pop("$schema")
+    source.pop("$id")
+    encoded = json.dumps(source).replace("#/$defs/", "#/components/schemas/DeploymentManifest/$defs/")
+    expected = json.loads(encoded)
+    openapi = yaml.safe_load((ROOT / "contracts/management-plane.openapi.yaml").read_text())
+    assert openapi["components"]["schemas"]["DeploymentManifest"] == expected

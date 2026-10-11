@@ -6,11 +6,12 @@ import os
 import ssl
 
 from cryptography import x509
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from cryptography.x509.oid import ExtensionOID
 from hypercorn.asyncio import serve
 from hypercorn.asyncio.tcp_server import TCPServer
 from hypercorn.config import Config
-from cryptography.x509.oid import ExtensionOID
-
 from services.management.app import app
 from services.management.commands import public_key_from_private
 
@@ -58,6 +59,25 @@ def configuration() -> Config:
     if required("VIGIL_MANAGEMENT_AUTH_ALGORITHM") not in {"EdDSA", "RS256"}:
         raise RuntimeError("VIGIL_MANAGEMENT_AUTH_ALGORITHM must be EdDSA or RS256")
     public_key_from_private(required("VIGIL_MANAGEMENT_COMMAND_PRIVATE_KEY"))
+    profile = os.getenv("VIGIL_MANAGEMENT_PROFILE", "managed-dedicated")
+    if profile not in {"managed-dedicated", "shared-saas"}:
+        raise RuntimeError("VIGIL_MANAGEMENT_PROFILE is invalid")
+    if profile == "shared-saas":
+        required("VIGIL_SAAS_AUTH_ISSUER")
+        required("VIGIL_SAAS_AUTH_AUDIENCE")
+        required("VIGIL_SAAS_AUTH_PUBLIC_KEY")
+        if required("VIGIL_SAAS_AUTH_ALGORITHM") not in {"EdDSA", "RS256"}:
+            raise RuntimeError("VIGIL_SAAS_AUTH_ALGORITHM must be EdDSA or RS256")
+        required("VIGIL_ROUTE_TICKET_ISSUER")
+        required("VIGIL_ROUTE_TICKET_AUDIENCE")
+        try:
+            route_key = serialization.load_pem_private_key(
+                required("VIGIL_ROUTE_TICKET_PRIVATE_KEY").encode(), password=None
+            )
+        except (TypeError, ValueError) as exc:
+            raise RuntimeError("VIGIL_ROUTE_TICKET_PRIVATE_KEY is invalid") from exc
+        if not isinstance(route_key, Ed25519PrivateKey):
+            raise RuntimeError("VIGIL_ROUTE_TICKET_PRIVATE_KEY must be Ed25519")
 
     config = Config()
     config.bind = [os.getenv("VIGIL_MANAGEMENT_BIND", "0.0.0.0:8443")]

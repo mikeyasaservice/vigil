@@ -1,0 +1,3 @@
+.local-state/
+Pulumi.*.yaml
+!Pulumi.example.yaml

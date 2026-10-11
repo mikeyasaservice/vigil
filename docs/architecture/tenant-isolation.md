@@ -33,6 +33,13 @@ those residual risks require separate infrastructure and operational controls.
 The matrix is a target; [the audit](vigil-phase1-audit.md) records baseline gaps.
 Test IDs are defined in [production readiness](../security/production-readiness-tests.md).
 
+The first Phase 4 checkpoint shares only organization/membership metadata,
+regional routing, quota reservation and aggregate metering. It keeps application
+data planes dedicated and exports `dataPlaneSharing=disabled-until-iam-qualified`.
+The LocalStack Community fixture did not enforce foreign explicit bucket access,
+so S3/SQS/KMS sharing is not approved by that result; see
+[Phase 4 validation](phase4-validation.md).
+
 ## Enforcement rules
 
 Every request gets an immutable validated TenantContext. Every queued work item

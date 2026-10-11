@@ -18,7 +18,19 @@
       "value": "00000000-0000-4000-8000-000000000000"
     },
     {
+      "key": "reservationId",
+      "value": "00000000-0000-4000-8000-000000000000"
+    },
+    {
+      "key": "tenantId",
+      "value": "tenant-example-a"
+    },
+    {
       "key": "operatorToken",
+      "value": ""
+    },
+    {
+      "key": "customerToken",
       "value": ""
     },
     {
@@ -486,6 +498,218 @@
         "body": {
           "mode": "raw",
           "raw": "{{failReconcileOperationBody}}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('response is JSON', () => pm.response.to.be.json);",
+              "pm.test('server did not fail open', () => pm.expect(pm.response.code).to.not.equal(500));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "listSaasTenantContexts",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{customerToken}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/v1/saas/tenants",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "v1",
+            "saas",
+            "tenants"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('response is JSON', () => pm.response.to.be.json);",
+              "pm.test('server did not fail open', () => pm.expect(pm.response.code).to.not.equal(500));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "createSaasRouteTicket",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{customerToken}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/v1/saas/tenants/{{tenantId}}/route",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "v1",
+            "saas",
+            "tenants",
+            "{{tenantId}}",
+            "route"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('response is JSON', () => pm.response.to.be.json);",
+              "pm.test('server did not fail open', () => pm.expect(pm.response.code).to.not.equal(500));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "getSaasTenantUsage",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{customerToken}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/v1/saas/tenants/{{tenantId}}/usage",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "v1",
+            "saas",
+            "tenants",
+            "{{tenantId}}",
+            "usage"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('response is JSON', () => pm.response.to.be.json);",
+              "pm.test('server did not fail open', () => pm.expect(pm.response.code).to.not.equal(500));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "reserveSaasQuota",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/internal/v1/saas/deployments/{{deploymentId}}/quota/reservations",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "internal",
+            "v1",
+            "saas",
+            "deployments",
+            "{{deploymentId}}",
+            "quota",
+            "reservations"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{{reserveSaasQuotaBody}}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('response is JSON', () => pm.response.to.be.json);",
+              "pm.test('server did not fail open', () => pm.expect(pm.response.code).to.not.equal(500));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "commitSaasQuota",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/internal/v1/saas/deployments/{{deploymentId}}/quota/reservations/{{reservationId}}/commit",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "internal",
+            "v1",
+            "saas",
+            "deployments",
+            "{{deploymentId}}",
+            "quota",
+            "reservations",
+            "{{reservationId}}",
+            "commit"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{{commitSaasQuotaBody}}"
         }
       },
       "event": [

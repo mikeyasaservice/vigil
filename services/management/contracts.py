@@ -6,7 +6,6 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-
 _LOCAL_REF = re.compile(r"^local:[A-Za-z0-9][A-Za-z0-9._/-]{0,254}$")
 _APPROVED_REF = re.compile(r"^approved:sha256:[a-f0-9]{64}$")
 
@@ -202,3 +201,61 @@ class OperationReceipt(ClosedModel):
     provider_update_id: str | None = None
     completed_at: str
     signature: str = Field(min_length=32)
+
+
+class TenantContextResponse(ClosedModel):
+    tenant_id: str
+    organization_id: str
+    display_name: str
+    roles: list[Literal["tenant_admin", "analyst", "approver", "viewer"]]
+    membership_version: int = Field(gt=0)
+    deployment_id: str
+    cell_id: str
+    region: str
+
+
+class RouteTicketResponse(ClosedModel):
+    ticket: str
+    expires_at: str
+    tenant_id: str
+    deployment_id: str
+    cell_id: str
+
+
+QuotaDimension = Literal[
+    "api_requests", "agent_runs", "model_tokens", "tool_calls", "ingest_bytes", "stored_bytes"
+]
+
+
+class QuotaReservationRequest(ClosedModel):
+    invocation_id: str = Field(min_length=1, max_length=200)
+    request_digest: str = Field(pattern=r"^[a-f0-9]{64}$")
+    dimension: QuotaDimension
+    amount: int = Field(gt=0)
+
+
+class QuotaCommitRequest(ClosedModel):
+    request_digest: str = Field(pattern=r"^[a-f0-9]{64}$")
+    actual_amount: int = Field(ge=0)
+
+
+class QuotaReservationResponse(ClosedModel):
+    reservation_id: uuid.UUID
+    tenant_id: str
+    deployment_id: str
+    dimension: QuotaDimension
+    reserved_amount: int
+    committed_amount: int | None = None
+    policy_version: int
+    status: Literal["reserved", "committed", "released"]
+    expires_at: str
+
+
+class UsageWindowResponse(ClosedModel):
+    tenant_id: str
+    dimension: QuotaDimension
+    window_started_at: str
+    reserved_amount: int
+    committed_amount: int
+    hard_limit: int
+    policy_version: int

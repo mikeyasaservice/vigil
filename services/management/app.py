@@ -1,11 +1,11 @@
 from __future__ import annotations
 
+import uuid
 from datetime import datetime
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from cryptography import x509
 from cryptography.x509.oid import ExtensionOID
-
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from services.management.auth import OperatorIdentity, current_operator
 from services.management.commands import issue_reconcile_command
 from services.management.contracts import (
@@ -14,8 +14,16 @@ from services.management.contracts import (
     OperationReceipt,
     OperationRequest,
     PlanReadyRequest,
+    QuotaCommitRequest,
+    QuotaReservationRequest,
+    QuotaReservationResponse,
     ReconcileClaimRequest,
+    RouteTicketResponse,
+    TenantContextResponse,
+    UsageWindowResponse,
 )
+from services.management.saas_auth import CustomerIdentity, current_customer
+from services.management.saas_tickets import issue_route_ticket
 from services.management.store import (
     ManagementConflict,
     ManagementDenied,
@@ -24,8 +32,7 @@ from services.management.store import (
     ManagementUnavailable,
 )
 
-
-app = FastAPI(title="Vigil management plane", version="3.0.0")
+app = FastAPI(title="Vigil management plane", version="4.0.0")
 
 
 def _store() -> ManagementStore:
@@ -43,7 +50,14 @@ def _error(exc: Exception) -> HTTPException:
 
 
 def _serializable(row: dict) -> dict:
-    return {key: value.isoformat() if isinstance(value, datetime) else str(value) if key == "operation_id" else value for key, value in row.items()}
+    return {
+        key: value.isoformat()
+        if isinstance(value, datetime)
+        else str(value)
+        if isinstance(value, uuid.UUID)
+        else value
+        for key, value in row.items()
+    }
 
 
 def _reconciler_identity(request: Request) -> str:
@@ -218,5 +232,83 @@ def complete_operation(
     try:
         receipt = body.model_dump(mode="json")
         return _serializable(_store().complete_operation(operation_id, workload, runner_id, receipt))
+    except (ManagementError, ManagementUnavailable) as exc:
+        raise _error(exc) from exc
+
+
+@app.get("/v1/saas/tenants", response_model=list[TenantContextResponse])
+def list_saas_tenants(actor: CustomerIdentity = Depends(current_customer)) -> list[dict]:
+    try:
+        return [_serializable(row) for row in _store().list_saas_contexts(actor)]
+    except (ManagementError, ManagementUnavailable) as exc:
+        raise _error(exc) from exc
+
+
+@app.post("/v1/saas/tenants/{tenant_id}/route", response_model=RouteTicketResponse)
+def create_saas_route(tenant_id: str, actor: CustomerIdentity = Depends(current_customer)) -> dict:
+    try:
+        store = _store()
+        route = store.resolve_saas_route(tenant_id, actor)
+        ticket, ticket_id, expires_at = issue_route_ticket(route, actor)
+        store.record_route_ticket(ticket_id, route, actor, expires_at)
+        return {
+            "ticket": ticket,
+            "expires_at": expires_at.isoformat(),
+            "tenant_id": route["tenant_id"],
+            "deployment_id": route["deployment_id"],
+            "cell_id": route["cell_id"],
+        }
+    except (ManagementError, ManagementUnavailable) as exc:
+        raise _error(exc) from exc
+
+
+@app.get("/v1/saas/tenants/{tenant_id}/usage", response_model=list[UsageWindowResponse])
+def get_saas_usage(tenant_id: str, actor: CustomerIdentity = Depends(current_customer)) -> list[dict]:
+    try:
+        return [_serializable(row) for row in _store().list_usage(tenant_id, actor)]
+    except (ManagementError, ManagementUnavailable) as exc:
+        raise _error(exc) from exc
+
+
+@app.post(
+    "/internal/v1/saas/deployments/{deployment_id}/quota/reservations",
+    response_model=QuotaReservationResponse,
+)
+def reserve_saas_quota(deployment_id: str, body: QuotaReservationRequest, request: Request) -> dict:
+    workload = _reconciler_identity(request)
+    try:
+        row = _store().reserve_quota(
+            deployment_id,
+            workload,
+            body.invocation_id,
+            body.request_digest,
+            body.dimension,
+            body.amount,
+        )
+        return _serializable(row)
+    except (ManagementError, ManagementUnavailable) as exc:
+        raise _error(exc) from exc
+
+
+@app.post(
+    "/internal/v1/saas/deployments/{deployment_id}/quota/reservations/{reservation_id}/commit",
+    response_model=QuotaReservationResponse,
+)
+def commit_saas_quota(
+    deployment_id: str,
+    reservation_id: str,
+    body: QuotaCommitRequest,
+    request: Request,
+) -> dict:
+    workload = _reconciler_identity(request)
+    try:
+        row = _store().commit_quota(
+            deployment_id,
+            workload,
+            reservation_id,
+            body.request_digest,
+            body.actual_amount,
+        )
+        return _serializable(row)
     except (ManagementError, ManagementUnavailable) as exc:
         raise _error(exc) from exc

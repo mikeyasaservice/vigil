@@ -1,0 +1,3 @@
+name: vigil-shared-saas
+runtime: go
+description: Shared SaaS regional-cell development infrastructure with tenant-scoped LocalStack IAM.

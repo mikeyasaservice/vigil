@@ -8,14 +8,18 @@ from pathlib import Path
 
 import yaml
 
-
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = ROOT / "contracts" / "management-plane.openapi.yaml"
 OUTPUT = ROOT / "contracts" / "postman" / "management-plane.collection.json"
 
 
 def variable_path(path: str) -> str:
-    return path.replace("{deployment_id}", "{{deploymentId}}").replace("{operation_id}", "{{operationId}}")
+    return (
+        path.replace("{deployment_id}", "{{deploymentId}}")
+        .replace("{operation_id}", "{{operationId}}")
+        .replace("{tenant_id}", "{{tenantId}}")
+        .replace("{reservation_id}", "{{reservationId}}")
+    )
 
 
 def main() -> None:
@@ -30,6 +34,8 @@ def main() -> None:
             security = operation.get("security", [])
             if any("operatorBearer" in requirement for requirement in security):
                 headers.append({"key": "Authorization", "value": "Bearer {{operatorToken}}"})
+            if any("customerBearer" in requirement for requirement in security):
+                headers.append({"key": "Authorization", "value": "Bearer {{customerToken}}"})
             if any("reconcilerWorkload" in requirement for requirement in security):
                 headers.append({"key": "X-Vigil-Runner-Id", "value": "{{runnerId}}"})
             if "requestBody" in operation:
@@ -71,7 +77,10 @@ def main() -> None:
             {"key": "baseUrl", "value": "http://127.0.0.1:8090"},
             {"key": "deploymentId", "value": "deployment-example-a"},
             {"key": "operationId", "value": "00000000-0000-4000-8000-000000000000"},
+            {"key": "reservationId", "value": "00000000-0000-4000-8000-000000000000"},
+            {"key": "tenantId", "value": "tenant-example-a"},
             {"key": "operatorToken", "value": ""},
+            {"key": "customerToken", "value": ""},
             {"key": "runnerId", "value": "reconciler-local-1"},
             {"key": "idempotencyKey", "value": "local-provision-1"},
         ],

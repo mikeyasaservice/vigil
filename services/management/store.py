@@ -6,17 +6,16 @@ import json
 import os
 import uuid
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Iterator
 
 import psycopg2
-from psycopg2.extras import RealDictCursor
-
-from core.agents.managed_execution import managed_digest
-from core.agents.managed_execution import Ed25519Verifier, ManagedSecurityError
+from core.agents.managed_execution import Ed25519Verifier, ManagedSecurityError, managed_digest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+from psycopg2.extras import RealDictCursor
 from services.management.auth import OperatorIdentity
 from services.management.contracts import DeploymentManifest
+from services.management.saas_auth import CustomerIdentity
 
 
 class ManagementError(ValueError):
@@ -741,3 +740,390 @@ class ManagementStore:
                 {"operation": operation_id, "payload": payload},
             )
             return cancelled
+
+    def list_saas_contexts(self, actor: CustomerIdentity) -> list[dict[str, Any]]:
+        """Return only active tenant contexts derived from durable membership."""
+        with self._transaction() as cursor:
+            cursor.execute(
+                """
+                SELECT m.tenant_id, ot.organization_id, t.display_name,
+                       array_agg(m.role ORDER BY m.role) AS roles,
+                       min(m.membership_version) AS min_membership_version,
+                       max(m.membership_version) AS membership_version,
+                       b.deployment_id, b.cell_id, c.region
+                  FROM management_tenant_memberships m
+                  JOIN management_tenants t ON t.tenant_id = m.tenant_id
+                  JOIN management_organization_tenants ot ON ot.tenant_id = m.tenant_id
+                  JOIN management_organizations o ON o.organization_id = ot.organization_id
+                  JOIN management_saas_tenant_bindings b ON b.tenant_id = m.tenant_id
+                  JOIN management_saas_cells c ON c.cell_id = b.cell_id
+                  JOIN management_deployments d
+                    ON d.tenant_id = b.tenant_id AND d.deployment_id = b.deployment_id
+                 WHERE m.issuer = %(issuer)s AND m.subject_id = %(subject)s
+                   AND m.status = 'active' AND t.status = 'active' AND o.status = 'active'
+                   AND b.status = 'active' AND c.status = 'active' AND d.state = 'active'
+                 GROUP BY m.tenant_id, ot.organization_id, t.display_name,
+                          b.deployment_id, b.cell_id, c.region
+                 ORDER BY m.tenant_id
+                """,
+                {"issuer": actor.issuer, "subject": actor.subject_id},
+            )
+            contexts = []
+            for value in cursor.fetchall():
+                row = dict(value)
+                if int(row.pop("min_membership_version")) != int(row["membership_version"]):
+                    continue
+                contexts.append(row)
+            return contexts
+
+    def resolve_saas_route(self, tenant_id: str, actor: CustomerIdentity) -> dict[str, Any]:
+        """Resolve a caller-selected tenant only after membership and route checks."""
+        with self._transaction() as cursor:
+            cursor.execute(
+                """
+                SELECT m.tenant_id, min(m.membership_version) AS min_membership_version,
+                       max(m.membership_version) AS membership_version,
+                       b.deployment_id, b.cell_id, b.route_epoch, c.route_ref, c.region,
+                       d.incarnation
+                  FROM management_tenant_memberships m
+                  JOIN management_tenants t ON t.tenant_id = m.tenant_id
+                  JOIN management_saas_tenant_bindings b ON b.tenant_id = m.tenant_id
+                  JOIN management_saas_cells c ON c.cell_id = b.cell_id
+                  JOIN management_deployments d
+                    ON d.tenant_id = b.tenant_id AND d.deployment_id = b.deployment_id
+                 WHERE m.issuer = %(issuer)s AND m.subject_id = %(subject)s
+                   AND m.tenant_id = %(tenant)s AND m.status = 'active'
+                   AND t.status = 'active' AND b.status = 'active'
+                   AND c.status = 'active' AND d.state = 'active'
+                 GROUP BY m.tenant_id, b.deployment_id, b.cell_id, b.route_epoch,
+                          c.route_ref, c.region, d.incarnation
+                """,
+                {"issuer": actor.issuer, "subject": actor.subject_id, "tenant": tenant_id},
+            )
+            row = cursor.fetchone()
+            if row is None or int(row["min_membership_version"]) != int(row["membership_version"]):
+                raise ManagementDenied("tenant route is not authorized")
+            held = dict(row)
+            held.pop("min_membership_version")
+            return held
+
+    def record_route_ticket(
+        self,
+        ticket_id: str,
+        route: dict[str, Any],
+        actor: CustomerIdentity,
+        expires_at: datetime,
+    ) -> None:
+        with self._transaction() as cursor:
+            # Recheck mutable authority in the same transaction as the audit record.
+            cursor.execute(
+                """
+                SELECT min(m.membership_version) AS min_membership_version,
+                       max(m.membership_version) AS max_membership_version,
+                       b.deployment_id, b.cell_id, b.route_epoch
+                  FROM management_tenant_memberships m
+                  JOIN management_saas_tenant_bindings b ON b.tenant_id = m.tenant_id
+                 WHERE m.issuer = %(issuer)s AND m.subject_id = %(subject)s
+                   AND m.tenant_id = %(tenant)s AND m.status = 'active'
+                   AND b.status = 'active'
+                 GROUP BY b.deployment_id, b.cell_id, b.route_epoch
+                """,
+                {
+                    "issuer": actor.issuer,
+                    "subject": actor.subject_id,
+                    "tenant": route["tenant_id"],
+                    "membership": route["membership_version"],
+                    "deployment": route["deployment_id"],
+                    "cell": route["cell_id"],
+                    "epoch": route["route_epoch"],
+                },
+            )
+            current = cursor.fetchone()
+            if (
+                current is None
+                or int(current["min_membership_version"]) != int(route["membership_version"])
+                or int(current["max_membership_version"]) != int(route["membership_version"])
+                or current["deployment_id"] != route["deployment_id"]
+                or current["cell_id"] != route["cell_id"]
+                or int(current["route_epoch"]) != int(route["route_epoch"])
+            ):
+                raise ManagementDenied("tenant route changed before ticket issue")
+            cursor.execute(
+                """
+                INSERT INTO management_route_ticket_audit
+                  (ticket_id, issuer, subject_id, tenant_id, deployment_id, cell_id,
+                   membership_version, route_epoch, expires_at)
+                VALUES (CAST(%(ticket)s AS uuid), %(issuer)s, %(subject)s, %(tenant)s,
+                        %(deployment)s, %(cell)s, %(membership)s, %(epoch)s, %(expires)s)
+                """,
+                {
+                    "ticket": ticket_id,
+                    "issuer": actor.issuer,
+                    "subject": actor.subject_id,
+                    "tenant": route["tenant_id"],
+                    "deployment": route["deployment_id"],
+                    "cell": route["cell_id"],
+                    "membership": route["membership_version"],
+                    "epoch": route["route_epoch"],
+                    "expires": expires_at,
+                },
+            )
+            cursor.execute(
+                """
+                INSERT INTO management_saas_audit
+                  (tenant_id, actor_kind, actor_id, action, outcome, reason_code, resource_ref)
+                VALUES (%s, 'user', %s, 'route.issue', 'allowed', 'active_membership', %s)
+                """,
+                (route["tenant_id"], f"{actor.issuer}#{actor.subject_id}", route["deployment_id"]),
+            )
+
+    @staticmethod
+    def _saas_workload(cursor, deployment_id: str, workload_spiffe_id: str) -> dict[str, Any]:
+        cursor.execute(
+            """
+            SELECT b.tenant_id, b.deployment_id
+              FROM management_saas_tenant_bindings b
+              JOIN management_tenants t ON t.tenant_id = b.tenant_id
+              JOIN management_deployments d
+                ON d.tenant_id = b.tenant_id AND d.deployment_id = b.deployment_id
+             WHERE b.deployment_id = %(deployment)s
+               AND b.data_plane_spiffe_id = %(spiffe)s
+               AND b.status = 'active' AND t.status = 'active' AND d.state = 'active'
+             FOR SHARE OF b, d
+            """,
+            {"deployment": deployment_id, "spiffe": workload_spiffe_id},
+        )
+        row = cursor.fetchone()
+        if row is None:
+            raise ManagementDenied("workload is not bound to the active tenant deployment")
+        return dict(row)
+
+    def reserve_quota(
+        self,
+        deployment_id: str,
+        workload_spiffe_id: str,
+        invocation_id: str,
+        request_digest: str,
+        dimension: str,
+        amount: int,
+    ) -> dict[str, Any]:
+        if amount <= 0:
+            raise ManagementError("quota reservation amount must be positive")
+        with self._transaction() as cursor:
+            workload = self._saas_workload(cursor, deployment_id, workload_spiffe_id)
+            tenant_id = str(workload["tenant_id"])
+            cursor.execute(
+                """
+                SELECT * FROM management_usage_reservations
+                 WHERE tenant_id = %s AND invocation_id = %s
+                 FOR UPDATE
+                """,
+                (tenant_id, invocation_id),
+            )
+            existing = cursor.fetchone()
+            if existing is not None:
+                if (
+                    existing["request_digest"] != request_digest
+                    or existing["dimension"] != dimension
+                    or int(existing["reserved_amount"]) != amount
+                ):
+                    raise ManagementConflict("quota invocation id was reused with different content")
+                return dict(existing)
+            cursor.execute(
+                """
+                SELECT * FROM management_quota_policies
+                 WHERE tenant_id = %s AND dimension = %s AND status = 'active'
+                 FOR UPDATE
+                """,
+                (tenant_id, dimension),
+            )
+            policy = cursor.fetchone()
+            if policy is None:
+                raise ManagementDenied("quota policy is unavailable")
+            now = datetime.now(timezone.utc)
+            seconds = int(policy["window_seconds"])
+            window = datetime.fromtimestamp(int(now.timestamp()) // seconds * seconds, timezone.utc)
+            cursor.execute(
+                """
+                INSERT INTO management_usage_windows
+                  (tenant_id, dimension, window_started_at)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (tenant_id, dimension, window_started_at) DO NOTHING
+                """,
+                (tenant_id, dimension, window),
+            )
+            cursor.execute(
+                """
+                SELECT * FROM management_usage_windows
+                 WHERE tenant_id = %s AND dimension = %s AND window_started_at = %s
+                 FOR UPDATE
+                """,
+                (tenant_id, dimension, window),
+            )
+            usage = cursor.fetchone()
+            assert usage is not None
+            cursor.execute(
+                """
+                SELECT reserved_amount FROM management_usage_reservations
+                 WHERE tenant_id = %s AND dimension = %s AND window_started_at = %s
+                   AND status = 'reserved' AND expires_at <= %s
+                 FOR UPDATE
+                """,
+                (tenant_id, dimension, window, now),
+            )
+            expired_amount = sum(int(row["reserved_amount"]) for row in cursor.fetchall())
+            if expired_amount:
+                cursor.execute(
+                    """
+                    UPDATE management_usage_reservations
+                       SET status = 'released', updated_at = now()
+                     WHERE tenant_id = %(tenant)s AND dimension = %(dimension)s
+                       AND window_started_at = %(window)s AND status = 'reserved'
+                       AND expires_at <= %(now)s;
+                    UPDATE management_usage_windows
+                       SET reserved_amount = reserved_amount - %(expired)s, updated_at = now()
+                     WHERE tenant_id = %(tenant)s AND dimension = %(dimension)s
+                       AND window_started_at = %(window)s
+                     RETURNING *
+                    """,
+                    {
+                        "tenant": tenant_id,
+                        "dimension": dimension,
+                        "window": window,
+                        "now": now,
+                        "expired": expired_amount,
+                    },
+                )
+                usage = cursor.fetchone()
+                assert usage is not None
+            if int(usage["reserved_amount"]) + int(usage["committed_amount"]) + amount > int(policy["hard_limit"]):
+                raise ManagementDenied("tenant quota is exhausted")
+            reservation_id = str(uuid.uuid4())
+            expiry = now + timedelta(minutes=5)
+            cursor.execute(
+                """
+                UPDATE management_usage_windows
+                   SET reserved_amount = reserved_amount + %(amount)s, updated_at = now()
+                 WHERE tenant_id = %(tenant)s AND dimension = %(dimension)s
+                   AND window_started_at = %(window)s;
+                INSERT INTO management_usage_reservations
+                  (reservation_id, tenant_id, deployment_id, dimension, invocation_id,
+                   request_digest, reserved_amount, policy_version, window_started_at, expires_at)
+                VALUES (CAST(%(reservation)s AS uuid), %(tenant)s, %(deployment)s, %(dimension)s,
+                        %(invocation)s, %(digest)s, %(amount)s, %(version)s, %(window)s, %(expiry)s)
+                RETURNING *
+                """,
+                {
+                    "reservation": reservation_id,
+                    "tenant": tenant_id,
+                    "deployment": deployment_id,
+                    "dimension": dimension,
+                    "invocation": invocation_id,
+                    "digest": request_digest,
+                    "amount": amount,
+                    "version": policy["policy_version"],
+                    "window": window,
+                    "expiry": expiry,
+                },
+            )
+            reservation = dict(cursor.fetchone())
+            cursor.execute(
+                """
+                INSERT INTO management_saas_audit
+                  (tenant_id, actor_kind, actor_id, action, outcome, reason_code, resource_ref)
+                VALUES (%s, 'workload', %s, 'quota.reserve', 'allowed', 'within_hard_limit', %s)
+                """,
+                (tenant_id, workload_spiffe_id, f"{dimension}:{reservation_id}"),
+            )
+            return reservation
+
+    def commit_quota(
+        self,
+        deployment_id: str,
+        workload_spiffe_id: str,
+        reservation_id: str,
+        request_digest: str,
+        actual_amount: int,
+    ) -> dict[str, Any]:
+        if actual_amount < 0:
+            raise ManagementError("actual quota usage cannot be negative")
+        with self._transaction() as cursor:
+            workload = self._saas_workload(cursor, deployment_id, workload_spiffe_id)
+            cursor.execute(
+                """
+                SELECT * FROM management_usage_reservations
+                 WHERE reservation_id = CAST(%s AS uuid) AND tenant_id = %s AND deployment_id = %s
+                 FOR UPDATE
+                """,
+                (reservation_id, workload["tenant_id"], deployment_id),
+            )
+            row = cursor.fetchone()
+            if row is None or row["request_digest"] != request_digest:
+                raise ManagementDenied("quota reservation is not authorized for this request")
+            if row["status"] == "committed":
+                if int(row["committed_amount"]) != actual_amount:
+                    raise ManagementConflict("quota reservation was already committed with different usage")
+                return dict(row)
+            if row["status"] != "reserved" or row["expires_at"] <= datetime.now(timezone.utc):
+                raise ManagementConflict("quota reservation is no longer active")
+            if actual_amount > int(row["reserved_amount"]):
+                raise ManagementDenied("actual usage exceeds the reserved quota")
+            cursor.execute(
+                """
+                UPDATE management_usage_windows
+                   SET reserved_amount = reserved_amount - %(reserved)s,
+                       committed_amount = committed_amount + %(actual)s,
+                       updated_at = now()
+                 WHERE tenant_id = %(tenant)s AND dimension = %(dimension)s
+                   AND window_started_at = %(window)s;
+                UPDATE management_usage_reservations
+                   SET status = 'committed', committed_amount = %(actual)s, updated_at = now()
+                 WHERE reservation_id = CAST(%(reservation)s AS uuid)
+                 RETURNING *
+                """,
+                {
+                    "reserved": row["reserved_amount"],
+                    "actual": actual_amount,
+                    "tenant": row["tenant_id"],
+                    "dimension": row["dimension"],
+                    "window": row["window_started_at"],
+                    "reservation": reservation_id,
+                },
+            )
+            committed = dict(cursor.fetchone())
+            cursor.execute(
+                """
+                INSERT INTO management_saas_audit
+                  (tenant_id, actor_kind, actor_id, action, outcome, reason_code, resource_ref)
+                VALUES (%s, 'workload', %s, 'quota.commit', 'allowed', 'reservation_reconciled', %s)
+                """,
+                (row["tenant_id"], workload_spiffe_id, f"{row['dimension']}:{reservation_id}"),
+            )
+            return committed
+
+    def list_usage(self, tenant_id: str, actor: CustomerIdentity) -> list[dict[str, Any]]:
+        with self._transaction() as cursor:
+            cursor.execute(
+                """
+                SELECT 1 FROM management_tenant_memberships
+                 WHERE issuer = %s AND subject_id = %s AND tenant_id = %s
+                   AND status = 'active' LIMIT 1
+                """,
+                (actor.issuer, actor.subject_id, tenant_id),
+            )
+            if cursor.fetchone() is None:
+                raise ManagementDenied("tenant usage is not authorized")
+            cursor.execute(
+                """
+                SELECT w.tenant_id, w.dimension, w.window_started_at,
+                       w.reserved_amount, w.committed_amount,
+                       p.hard_limit, p.policy_version
+                  FROM management_usage_windows w
+                  JOIN management_quota_policies p
+                    ON p.tenant_id = w.tenant_id AND p.dimension = w.dimension
+                 WHERE w.tenant_id = %s
+                 ORDER BY w.dimension, w.window_started_at DESC
+                """,
+                (tenant_id,),
+            )
+            return [dict(row) for row in cursor.fetchall()]
