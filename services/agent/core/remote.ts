@@ -8,7 +8,7 @@ export interface RemoteOptions {
   principal?: ToolPrincipal;
   /** Managed profile requires an independent grant even for local tools. */
   managed?: boolean;
-  authorize?: (tool: RegisteredTool, args: Record<string, unknown>, signal?: AbortSignal) => Promise<void>;
+  authorize?: (tool: RegisteredTool, args: Record<string, unknown>, signal?: AbortSignal) => Promise<ToolResult | void>;
   fetch?: typeof globalThis.fetch;
 }
 
@@ -74,16 +74,17 @@ export function remoteDispatch(options: RemoteOptions): ToolDispatch {
       // A tool the registry answers itself never leaves the process: every call routes
       // through this dispatch, so a local implementation was otherwise unreachable.
       if (options.managed) {
+        if (tool.local) {
+          if (!tool.id.startsWith("pure:")) return { ok: false, failure: { kind: "refused", detail: "managed profile forbids unclassified local tools" } };
+          return tool.invoke(args);
+        }
         if (options.authorize === undefined) return { ok: false, failure: { kind: "refused", detail: "managed authorization is unavailable" } };
         try {
-          await options.authorize(tool, args, signal);
+          const authorized = await options.authorize(tool, args, signal);
+          if (authorized === undefined) return { ok: false, failure: { kind: "refused", detail: "managed gateway returned no tool result" } };
+          return authorized;
         } catch (error) {
           return { ok: false, failure: { kind: "refused", detail: error instanceof Error ? error.message : String(error) } };
-        }
-        // Local tools are pure computations only when explicitly named. A local
-        // implementation that can reach an integration is never a managed bypass.
-        if (tool.local && !tool.id.startsWith("pure:")) {
-          return { ok: false, failure: { kind: "refused", detail: "managed profile forbids unclassified local tools" } };
         }
       }
       if (tool.local) return tool.invoke(args);

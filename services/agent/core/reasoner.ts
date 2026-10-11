@@ -42,14 +42,14 @@ function validate(input: ReasonerInput, value: unknown): ReasonerOutput {
   };
 }
 
-export function httpReasoner(options: { url: string; token: string; fetch?: typeof globalThis.fetch }): Reasoner {
+export function httpReasoner(options: { url: string; token: string; programDigest: string; fetch?: typeof globalThis.fetch }): Reasoner {
   const call = options.fetch ?? globalThis.fetch;
   return {
     async evaluate(input, signal) {
       const response = await call(options.url, {
         method: "POST",
         headers: { "content-type": "application/json", authorization: `Bearer ${options.token}` },
-        body: JSON.stringify({ program_id: "triage-dspy-v1", input }),
+        body: JSON.stringify({ program_id: "triage-dspy-v1", program_digest: options.programDigest, input }),
         signal,
       });
       if (!response.ok) throw new Error(`reasoner answered ${response.status}`);

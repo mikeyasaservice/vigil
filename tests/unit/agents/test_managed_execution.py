@@ -98,3 +98,64 @@ def test_invocation_id_cannot_change_arguments() -> None:
     changed = Invocation("same-id", identity.execution_id, "tenant-a", "findings.read", "finding-a", {"id": "other"}, grant)
     with pytest.raises(ManagedSecurityError):
         authority.record_invocation(changed, {"ok": True})
+
+
+def test_grant_cannot_cross_execution_or_increase_budget() -> None:
+    authority = ManagedAuthority()
+    first = authority.claim(
+        authority.admit(context(), admission_id="a", workflow_id="triage-v1", workflow_digest="w", program_id="p", program_digest="pd", request={}),
+        worker_key_id="worker-a",
+        capabilities=("findings.read",),
+    )
+    second = authority.claim(
+        authority.admit(context(), admission_id="b", workflow_id="triage-v1", workflow_digest="w", program_id="p", program_digest="pd", request={}),
+        worker_key_id="worker-b",
+        capabilities=("findings.read",),
+    )
+    grant = authority.grant(first, grant_id="grant-a", action="findings.read", resource="finding-a", arguments={}, workload_key_id="worker-a")
+    with pytest.raises(ManagedSecurityError):
+        authority.authorize(Invocation("foreign", second.execution_id, second.tenant_id, "findings.read", "finding-a", {}, grant))
+    before = authority.budgets[first.execution_id]
+    with pytest.raises(ManagedSecurityError):
+        Invocation("negative", first.execution_id, first.tenant_id, "findings.read", "finding-a", {}, grant, budget_units=-1)
+    assert authority.budgets[first.execution_id] == before
+
+
+def test_repeated_authorization_reserves_budget_once() -> None:
+    authority = ManagedAuthority()
+    identity = authority.claim(
+        authority.admit(context(), admission_id="once", workflow_id="triage-v1", workflow_digest="w", program_id="p", program_digest="pd", request={}),
+        worker_key_id="worker-a",
+        capabilities=("findings.read",),
+    )
+    grant = authority.grant(identity, grant_id="grant-once", action="findings.read", resource="finding-a", arguments={}, workload_key_id="worker-a")
+    invocation = Invocation("once", identity.execution_id, identity.tenant_id, "findings.read", "finding-a", {}, grant)
+    authority.authorize(invocation)
+    remaining = authority.budgets[identity.execution_id]
+    authority.authorize(invocation)
+    assert authority.budgets[identity.execution_id] == remaining
+
+
+def test_worker_takeover_fences_old_grants() -> None:
+    authority = ManagedAuthority()
+    envelope = authority.admit(context(), admission_id="takeover", workflow_id="triage-v1", workflow_digest="w", program_id="p", program_digest="pd", request={})
+    first = authority.claim(envelope, worker_key_id="worker-a", capabilities=("findings.read",))
+    grant = authority.grant(first, grant_id="takeover-grant", action="findings.read", resource="finding-a", arguments={}, workload_key_id="worker-a")
+    second = authority.claim(envelope, worker_key_id="worker-a", capabilities=("findings.read",))
+    assert first.jti != second.jti
+    with pytest.raises(ManagedSecurityError):
+        authority.authorize(Invocation("takeover", second.execution_id, second.tenant_id, "findings.read", "finding-a", {}, grant))
+
+
+def test_execution_attestation_is_bound_to_claim() -> None:
+    authority = ManagedAuthority()
+    envelope = authority.admit(
+        context(), admission_id="attestation", workflow_id="triage-v1", workflow_digest="w",
+        program_id="p", program_digest="pd", request={},
+    )
+    identity = authority.claim(envelope, worker_key_id="worker-a", capabilities=("findings.read",))
+    attestation = authority.sign_execution_attestation(identity)
+    authority.verify_execution_attestation(identity, attestation)
+    replacement = authority.claim(envelope, worker_key_id="worker-a", capabilities=("findings.read",))
+    with pytest.raises(ManagedSecurityError):
+        authority.verify_execution_attestation(replacement, attestation)

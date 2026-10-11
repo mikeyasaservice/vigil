@@ -87,9 +87,39 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ManagedRunResponse' }
+  /v1/claim:
+    post:
+      operationId: claimManagedExecution
+      security: [{ mtls: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ManagedClaimRequest' }
+      responses:
+        '200':
+          description: Worker-bound execution identity
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ExecutionIdentity' }
+        '403': { description: Claim denied }
+  /v1/authorize:
+    post:
+      operationId: authorizeManagedTool
+      security: [{ mtls: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ManagedAuthorizeRequest' }
+      responses:
+        '200':
+          description: Existing ToolResult shape
+        '403': { description: Capability denied }
 components:
   securitySchemes:
     bearerAuth: { type: http, scheme: bearer }
+    mtls: { type: mutualTLS }
   parameters:
     RunId: { name: run_id, in: path, required: true, schema: { type: string, format: uuid } }
   schemas:
@@ -134,3 +164,36 @@ components:
         action: { type: string, minLength: 1, maxLength: 200 }
         resource: { type: string, minLength: 1, maxLength: 500 }
         argument_digest: { type: string, minLength: 1, maxLength: 128 }
+    ManagedClaimRequest:
+      type: object
+      required: [envelope, worker_key_id]
+      properties:
+        envelope: { type: object }
+        worker_key_id: { type: string, minLength: 1 }
+        capabilities: { type: array, items: { type: string } }
+    ManagedAuthorizeRequest:
+      type: object
+      required: [execution_id, tenant_id, deployment_id, worker_key_id, claim_token, attestation, tool]
+      properties:
+        execution_id: { type: string }
+        tenant_id: { type: string }
+        deployment_id: { type: string }
+        worker_key_id: { type: string }
+        claim_token: { type: string }
+        attestation: { type: string }
+        tool: { type: string }
+        args: { type: object }
+        grant: { type: object }
+        max_rows: { type: integer, minimum: 1 }
+        timeout_ms: { type: integer, minimum: 1 }
+    ExecutionIdentity:
+      type: object
+      required: [execution_id, tenant_id, deployment_id, worker_key_id, program_digest, jti, attestation]
+      properties:
+        execution_id: { type: string }
+        tenant_id: { type: string }
+        deployment_id: { type: string }
+        worker_key_id: { type: string }
+        program_digest: { type: string }
+        jti: { type: string }
+        attestation: { type: string }

@@ -76,6 +76,13 @@ class TestAuthorisation:
         _answers(monkeypatch, [])
         assert _invoke(client).status_code == 200
 
+    def test_managed_profile_refuses_shared_token_route(self, client, monkeypatch):
+        monkeypatch.setenv("VIGIL_EXECUTION_PROFILE", "managed")
+        _answers(monkeypatch, [])
+        response = _invoke(client)
+        assert response.status_code == 403
+        assert "capability gateway" in response.json()["detail"]
+
 
 class TestBoundsAtTheSource:
     def test_caps_rows_and_says_it_capped(self, client, monkeypatch):

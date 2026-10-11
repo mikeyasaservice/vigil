@@ -8,18 +8,21 @@ for every side effect.
 from __future__ import annotations
 
 import hmac
+import json
 import os
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
 
 from services.reasoner.contracts import TriageInput
-from services.reasoner.programs.triage_v1 import PROGRAM_ID, PROGRAM_VERSION, evaluate
+from services.reasoner.programs.triage_v1 import PROGRAM_ID, PROGRAM_VERSION, artifact_digest, evaluate
 
 
 class EvaluateRequest(BaseModel):
     program_id: str = Field(min_length=1, max_length=100)
+    program_digest: str = Field(min_length=1, max_length=200)
     input: dict[str, Any]
 
 
@@ -37,7 +40,7 @@ def _authorize(authorization: str | None) -> None:
 
 @app.get("/healthz")
 def healthz() -> dict[str, str]:
-    return {"status": "ok", "program_id": PROGRAM_ID, "version": PROGRAM_VERSION}
+    return {"status": "ok", "program_id": PROGRAM_ID, "version": PROGRAM_VERSION, "artifact_digest": artifact_digest()}
 
 
 @app.post("/v1/evaluate")
@@ -48,6 +51,9 @@ def evaluate_reasoner(
     _authorize(authorization)
     if request.program_id != PROGRAM_ID:
         raise HTTPException(status_code=403, detail="program is not approved")
+    manifest = json.loads((Path(__file__).resolve().parent / "programs" / "triage-v1.manifest.json").read_text())
+    if not hmac.compare_digest(request.program_digest, str(manifest.get("artifact_digest", ""))) or not hmac.compare_digest(str(manifest.get("artifact_digest", "")), artifact_digest()):
+        raise HTTPException(status_code=503, detail="reasoner artifact is not approved")
     try:
         value = TriageInput(
             execution_id=str(request.input["execution_id"]),

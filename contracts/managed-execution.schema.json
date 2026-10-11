@@ -8,7 +8,20 @@
     "schema_version": {"const": 2},
     "execution_id": {"type": "string", "minLength": 16, "maxLength": 128},
     "reason": {"enum": ["start", "resume"]},
-    "references": {"type": "object", "additionalProperties": {"type": "string", "maxLength": 256}},
+    "references": {
+      "type": "object",
+      "required": ["run_id", "run_kind", "request_digest"],
+      "properties": {
+        "run_id": {"type": "string", "minLength": 1},
+        "run_kind": {"type": "string", "const": "investigate"},
+        "request_digest": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "workflow_id": {"type": "string", "minLength": 1},
+        "workflow_digest": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "program_id": {"type": "string", "minLength": 1},
+        "program_digest": {"type": "string", "pattern": "^(sha256:)?[a-f0-9]{64}$"}
+      },
+      "additionalProperties": {"type": "string", "maxLength": 256}
+    },
     "signature": {"type": "string", "minLength": 32},
     "admission": {
       "type": "object",
@@ -19,7 +32,7 @@
         "workflow_id": {"type": "string", "minLength": 1},
         "workflow_digest": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
         "program_id": {"type": "string", "minLength": 1},
-        "program_digest": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "program_digest": {"type": "string", "pattern": "^(sha256:)?[a-f0-9]{64}$"},
         "request_digest": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
         "issued_at": {"type": "string", "format": "date-time"},
         "expires_at": {"type": "string", "format": "date-time"},

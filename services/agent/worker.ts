@@ -37,7 +37,7 @@ import type { HuntKinds } from "./workflows/hunt/ledger.js";
 import type { DirectiveQueue } from "./workflows/hunt/ports.js";
 import { InProcessDirectiveQueue } from "./workflows/hunt/directives.js";
 import { DirectiveRepository } from "./ledger/directives.js";
-import { ManagedAdmissionError, claimManagedExecution, verifyManagedJob } from "./core/managed.js";
+import { ManagedAdmissionError, claimManagedExecution, claimManagedExecutionFromService, verifyManagedJob, type ManagedExecutionIdentity } from "./core/managed.js";
 
 const log = logger("agent.worker");
 
@@ -182,6 +182,7 @@ async function drive(
   build: HarnessFactory,
   signal: AbortSignal,
   directives: DirectiveQueue,
+  managedIdentity?: ManagedExecutionIdentity,
 ): Promise<string | null> {
   const { run_kind: kind, run_id, enqueued_by: started_by } = job;
   // Folded off the ledger, so a resumed run continues its allowance instead of
@@ -190,12 +191,12 @@ async function drive(
   const seed = seedFrom(await state.read(run_id));
 
   if (kind === "compose") {
-    await runCompose(build(kind, spec, as<ComposeKinds>(state), undefined, seed), { run_id, spec, started_by, mirror: mirrorFor(), signal });
+    await runCompose(build(kind, spec, as<ComposeKinds>(state), undefined, seed, undefined, managedIdentity), { run_id, spec, started_by, mirror: mirrorFor(), signal });
     return null;
   }
   const entry = archFor(kind);
   if (entry.workflow === "hunt") {
-    const harness = build(kind, spec, as<HuntKinds>(state), undefined, seed);
+    const harness = build(kind, spec, as<HuntKinds>(state), undefined, seed, undefined, managedIdentity);
     // Only a forward hunt files its handoffs early: it escalates and keeps hunting,
     // so its case must not wait on a terminal that may be far off or never come.
     const onHandoff = kind === "hunt" ? handoffFor() : undefined;
@@ -206,12 +207,12 @@ async function drive(
     return done.status === "waiting_approval" ? done.reason : null;
   }
   if (entry.workflow === "rootcause") {
-    const harness = build(kind, spec, as<RootCauseKinds>(state), undefined, seed);
+    const harness = build(kind, spec, as<RootCauseKinds>(state), undefined, seed, undefined, managedIdentity);
     await runRootCause(harness, { run_id, spec, started_by, answers: answersFor(), announce: announceFor(), signal, queue: directives });
     return null;
   }
   if (kind === "hunt" || kind === "investigate") {
-    const harness = build(kind, spec, as<LeadKinds>(state), undefined, seed);
+    const harness = build(kind, spec, as<LeadKinds>(state), undefined, seed, undefined, managedIdentity);
     await runLead(harness, { run_id, run_kind: kind, spec, actions: entry.actions, halts: entry.halts, started_by, answers: answersFor(), announce: announceFor(), signal });
     return null;
   }
@@ -232,6 +233,7 @@ export async function advance(
   job: RunJob,
   build: HarnessFactory = harnessFor,
   directives: DirectiveQueue = new InProcessDirectiveQueue(),
+  managedIdentity?: ManagedExecutionIdentity,
 ): Promise<void> {
   if ((await state.terminal(job.run_id)) !== null) {
     await leases.finish(job.run_id);
@@ -274,7 +276,7 @@ export async function advance(
     // iteration can take minutes, and onCost only clears the row once it ends.
     // Compose reports its own state through its phases.
     if (answered > 0 && job.run_kind !== "compose") await tell(job.run_id, { status: "running", reason: "", cost_usd: await spentOn(state, job.run_id) });
-    const parked = await drive(state, job, spec, build, halt.signal, directives);
+    const parked = await drive(state, job, spec, build, halt.signal, directives, managedIdentity);
     await settle(state, leases, job, spec, owner, parked);
   } catch (error) {
     await abandon(job, error);
@@ -543,6 +545,9 @@ interface JobOptions {
 export async function sweepOnce(leases: Leases, queue: Enqueue, limit = 50): Promise<number> {
   const due = await leases.sweep(LEASE_TTL_MS, limit);
   for (const claim of due) {
+    if (process.env["VIGIL_EXECUTION_PROFILE"] === "managed") {
+      throw new ManagedAdmissionError("managed watchdog resumes require a signed security-service envelope");
+    }
     const job: RunJob = {
       schema_version: JOB_SCHEMA_VERSION,
       run_id: claim.run_id,
@@ -573,8 +578,10 @@ export async function handle(state: State, leases: Leases, job: RunJob, directiv
     // A managed job is admitted before any file, playbook, or ledger access.
     // Standalone v1 jobs remain on their frozen path until the managed profile is enabled.
     verifyManagedJob(job);
-    claimManagedExecution(job);
-    await advance(state, leases, job, build, directives);
+    const managedIdentity = process.env["VIGIL_EXECUTION_PROFILE"] === "managed"
+      ? await claimManagedExecutionFromService(job)
+      : claimManagedExecution(job);
+    await advance(state, leases, job, build, directives, managedIdentity ?? undefined);
   } catch (error) {
     if (error instanceof SpecError || error instanceof GatewayExhausted || error instanceof ManagedAdmissionError) {
       throw Object.assign(new UnrecoverableError(error.message), { cause: error });

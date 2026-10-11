@@ -8,12 +8,30 @@ The deterministic branch is used by CI and never claims model-quality results.
 from __future__ import annotations
 
 import os
+import hashlib
+import json
+from pathlib import Path
 from typing import Any, Mapping
 
 from services.reasoner.contracts import TriageInput, TriageOutput
 
 PROGRAM_ID = "triage-dspy-v1"
 PROGRAM_VERSION = "1.0.0"
+
+
+def artifact_digest() -> str:
+    """Digest the reviewed program, manifest metadata, and locked dependencies."""
+    root = Path(__file__).resolve().parent
+    manifest = json.loads((root / "triage-v1.manifest.json").read_text())
+    manifest.pop("artifact_digest", None)
+    payload = b"\n".join(
+        (
+            Path(__file__).read_bytes(),
+            json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode(),
+            (root.parent / "requirements.txt").read_bytes(),
+        )
+    )
+    return "sha256:" + hashlib.sha256(payload).hexdigest()
 
 
 def _deterministic(value: TriageInput) -> TriageOutput:

@@ -2,8 +2,10 @@
   "program_id": "triage-dspy-v1",
   "version": "1.0.0",
   "status": "approved",
-  "artifact_digest": "sha256:vigil-dspy-triage-v1",
+  "artifact_digest": "sha256:f762a5085fb543946f85806f9ae44a34bda2dc8aa0885b9598fc3f3326ca8c1e",
   "scope": "tenant-local",
-  "actions": ["propose:review"],
+  "actions": [
+    "propose:review"
+  ],
   "execution": "reasoner-only; gateway authorization required for every side effect"
 }

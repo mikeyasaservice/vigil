@@ -83,6 +83,16 @@ export async function runLead(harness: Harness<LeadKinds>, options: LeadOptions)
   if ((await harness.state.latestSeq(run_id)) === null) await open(harness, options);
 
   const topology = topologyFor(spec.dispatch.topology);
+  // Managed triage is selected by the approved harness, not by the model. The
+  // reasoner only returns typed hypotheses and proposals; all subsequent tool
+  // calls still pass through the independent dispatch boundary.
+  const triage = harness.reasoner === undefined ? null : await harness.reasoner.evaluate({
+    execution_id: run_id,
+    finding_ids: openingKeys(spec),
+    evidence: [],
+    budget_tokens: 2048,
+  });
+  const triageBrief = triage === null ? "" : `\nPinned triage assessment:\n${JSON.stringify({ hypotheses: triage.hypotheses, limitations: triage.limitations, proposed_actions: triage.proposed_actions, confidence: triage.confidence })}`;
   const rounds: Round[] = [];
   for (;;) {
     // Per iteration, not once per resume: an answer journaled after the parked check
@@ -91,7 +101,7 @@ export async function runLead(harness: Harness<LeadKinds>, options: LeadOptions)
 
     const started = performance.now();
     // Rendered from the ledger each turn, never journaled: a resume derives the same text.
-    const task = `${brief(spec)}${held(await harness.state.read(run_id), spec)}`;
+    const task = `${brief(spec)}${triageBrief}${held(await harness.state.read(run_id), spec)}`;
     const outcome = await drain(streamTurn<Decision, LeadKinds>(turnFor(options, "lead", lead, task), cueing(harness, brief(spec))));
     const durationMs = Math.round(performance.now() - started);
     if (outcome.status === "waiting_approval") {

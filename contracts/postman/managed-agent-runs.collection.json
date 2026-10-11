@@ -5,9 +5,18 @@
     "description": "Filesystem-derived collection for the managed v2 OpenAPI boundary. Never publish credentials or this collection to a shared workspace."
   },
   "variable": [
-    { "key": "baseUrl", "value": "http://localhost:6987" },
-    { "key": "runId", "value": "00000000-0000-0000-0000-000000000000" },
-    { "key": "accessToken", "value": "" }
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:6987"
+    },
+    {
+      "key": "runId",
+      "value": "00000000-0000-0000-0000-000000000000"
+    },
+    {
+      "key": "accessToken",
+      "value": ""
+    }
   ],
   "item": [
     {
@@ -15,37 +24,190 @@
       "request": {
         "method": "POST",
         "header": [
-          { "key": "Authorization", "value": "Bearer {{accessToken}}" },
-          { "key": "Content-Type", "value": "application/json" }
+          {
+            "key": "Authorization",
+            "value": "Bearer {{accessToken}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
         ],
-        "body": { "mode": "raw", "raw": "{\n  \"workflow_id\": \"triage-v1\",\n  \"finding_ids\": [\"finding-a-1\"],\n  \"prompt\": \"Review this synthetic finding\"\n}" },
-        "url": { "raw": "{{baseUrl}}/api/v2/agent-runs", "host": ["{{baseUrl}}"], "path": ["api", "v2", "agent-runs"] }
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"workflow_id\": \"triage-v1\",\n  \"finding_ids\": [\"finding-a-1\"],\n  \"prompt\": \"Review this synthetic finding\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v2/agent-runs",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v2",
+            "agent-runs"
+          ]
+        }
       },
-      "event": [{ "listen": "test", "script": { "exec": ["pm.test('accepted', () => pm.response.to.have.status(202));"] } }]
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('accepted', () => pm.response.to.have.status(202));"
+            ]
+          }
+        }
+      ]
     },
     {
       "name": "List owned runs",
       "request": {
         "method": "GET",
-        "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
-        "url": { "raw": "{{baseUrl}}/api/v2/agent-runs", "host": ["{{baseUrl}}"], "path": ["api", "v2", "agent-runs"] }
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{accessToken}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/v2/agent-runs",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v2",
+            "agent-runs"
+          ]
+        }
       }
     },
     {
       "name": "Get run",
       "request": {
         "method": "GET",
-        "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
-        "url": { "raw": "{{baseUrl}}/api/v2/agent-runs/{{runId}}", "host": ["{{baseUrl}}"], "path": ["api", "v2", "agent-runs", "{{runId}}"] }
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{accessToken}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/v2/agent-runs/{{runId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v2",
+            "agent-runs",
+            "{{runId}}"
+          ]
+        }
       }
     },
     {
       "name": "Cancel run",
       "request": {
         "method": "POST",
-        "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
-        "url": { "raw": "{{baseUrl}}/api/v2/agent-runs/{{runId}}/cancel", "host": ["{{baseUrl}}"], "path": ["api", "v2", "agent-runs", "{{runId}}", "cancel"] }
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{accessToken}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/v2/agent-runs/{{runId}}/cancel",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v2",
+            "agent-runs",
+            "{{runId}}",
+            "cancel"
+          ]
+        }
       }
+    },
+    {
+      "name": "Gateway claim denial without mTLS",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"envelope\": {},\n  \"worker_key_id\": \"worker-a\",\n  \"capabilities\": [\"findings.read\"]\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/v1/claim",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "v1",
+            "claim"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('refuses missing mTLS identity', () => pm.expect(pm.response.code).to.be.oneOf([401, 403, 503]));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Legacy tool route is unavailable to managed workers",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{accessToken}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"tool\": \"list_findings\",\n  \"args\": {},\n  \"bounds\": {\"max_rows\": 1, \"timeout_ms\": 500}\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/internal/tools/invoke",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "internal",
+            "tools",
+            "invoke"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('managed profile refuses shared token route', () => pm.expect(pm.response.code).to.be.oneOf([403, 404]));"
+            ]
+          }
+        }
+      ]
     }
   ]
 }

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from contextlib import nullcontext
 from typing import Any, ContextManager, Dict, List, Optional, Tuple
 
@@ -203,6 +204,8 @@ async def invoke(
     authorization: Optional[str] = Header(default=None),
     registry: MCPRegistry = Depends(provide_mcp_registry),
 ) -> Dict[str, Any]:
+    if os.getenv("VIGIL_EXECUTION_PROFILE", "standalone").lower() == "managed":
+        raise HTTPException(status_code=403, detail="managed workers must use the capability gateway")
     authorise(authorization, "tool invocation")
     # A token that does not verify is refused, never read as "no person": that
     # would record a person's work as an agent's.

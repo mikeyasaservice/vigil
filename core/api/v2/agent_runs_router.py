@@ -19,8 +19,10 @@ from typing import Any, Dict, Optional
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from pydantic import BaseModel, Field
 
-from core.agents.managed_execution import ManagedAuthority, ManagedSecurityError, TenantContext
-from core.agents.queue import enqueue_run, build_start_job
+from core.agents.managed_execution import ManagedAuthority, ManagedSecurityError, QueueEnvelope, TenantContext
+from core.agents.managed_service import authority as shared_authority
+from core.agents.managed_store import ManagedRunStore
+from core.agents.queue import enqueue_run, build_resume_job, build_start_job
 from core.auth.current_user import get_current_user
 from core.auth.permissions import permission_gate
 from core.routing import Auth, RouterMeta
@@ -151,16 +153,26 @@ def validate_managed_startup() -> None:
         "VIGIL_DEPLOYMENT_ID",
         "VIGIL_MANAGED_AUTHORITY_PRIVATE_KEY",
         "VIGIL_MANAGED_MEMBERSHIPS",
+        "VIGIL_MANAGED_DATABASE_URL",
+        "VIGIL_MANAGED_MTLS_CA",
     )
     missing = [name for name in required if not os.getenv(name)]
-    if missing or os.getenv("DEV_MODE", "false").lower() == "true":
+    if (
+        missing
+        or os.getenv("DEV_MODE", "false").lower() == "true"
+        or os.getenv("VIGIL_MANAGED_FAIL_OPEN_REVOCATION", "false").lower() == "true"
+    ):
         raise RuntimeError("managed execution trust configuration is incomplete")
 
 
-_authority = _authority_from_trust_material()
-_runs: Dict[str, ManagedRunResponse] = {}
-_run_subjects: Dict[str, str] = {}
-_TRIAGE_PROGRAM_DIGEST = hashlib.sha256(b"vigil-dspy-triage-v1").hexdigest()
+_authority = shared_authority
+_store = ManagedRunStore()
+try:
+    from services.reasoner.programs.triage_v1 import artifact_digest as _triage_artifact_digest
+
+    _TRIAGE_PROGRAM_DIGEST = _triage_artifact_digest()
+except (ImportError, OSError):
+    _TRIAGE_PROGRAM_DIGEST = ""
 _TRIAGE_WORKFLOW_DIGEST = hashlib.sha256(b"vigil-managed-triage-v1").hexdigest()
 
 
@@ -173,20 +185,18 @@ def _require_managed_profile() -> None:
 
 def _run_for_tenant(run_id: str, user: User) -> ManagedRunResponse:
     try:
-        existing = _runs[str(uuid.UUID(run_id))]
-    except (ValueError, KeyError) as exc:
+        normalized = str(uuid.UUID(run_id))
+    except ValueError as exc:
         raise HTTPException(status_code=404, detail="managed run not found") from exc
     binding = _resolver.resolve(user, None)
-    if binding.tenant_id != existing.tenant_id:
-        raise HTTPException(status_code=403, detail="run ownership is not currently authorized")
-    return existing
+    row = _store.get(normalized, binding.tenant_id, str(user.user_id))
+    if row is None:
+        raise HTTPException(status_code=404, detail="managed run not found")
+    return ManagedRunResponse(**{key: str(row[key]) for key in ("run_id", "execution_id", "tenant_id", "deployment_id", "status", "workflow_id")})
 
 
 def _owned_run(run_id: str, user: User) -> ManagedRunResponse:
-    existing = _run_for_tenant(run_id, user)
-    if _run_subjects.get(existing.run_id) != str(user.user_id):
-        raise HTTPException(status_code=403, detail="run ownership is not currently authorized")
-    return existing
+    return _run_for_tenant(run_id, user)
 
 
 @router.post("", response_model=ManagedStartResponse, status_code=status.HTTP_202_ACCEPTED, dependencies=[permission_gate("ai_chat.use")])
@@ -209,7 +219,14 @@ async def start_managed_run(
         policy_version=binding.policy_version,
         request_id=request_id,
     )
-    request_data = {"workflow_id": body.workflow_id, "finding_ids": body.finding_ids, "prompt": body.prompt}
+    run_id = str(uuid.uuid4())
+    job_request = {
+        "arch": "",
+        "playbook": "workflow:triage-v1",
+        "config": "",
+        "prompt": body.prompt,
+        "finding_ids": body.finding_ids,
+    }
     try:
         envelope = _authority.admit(
             context,
@@ -218,39 +235,44 @@ async def start_managed_run(
             workflow_digest=_TRIAGE_WORKFLOW_DIGEST,
             program_id="triage-dspy-v1",
             program_digest=_TRIAGE_PROGRAM_DIGEST,
-            request=request_data,
+            request=job_request,
+            references={
+                "run_id": run_id,
+                "run_kind": "investigate",
+                "workflow_id": body.workflow_id,
+                "workflow_digest": _TRIAGE_WORKFLOW_DIGEST,
+                "program_id": "triage-dspy-v1",
+                "program_digest": _TRIAGE_PROGRAM_DIGEST,
+            },
         )
     except ManagedSecurityError as exc:
         raise HTTPException(status_code=403, detail="managed admission denied") from exc
 
-    run_id = str(uuid.uuid4())
     job = build_start_job(
         run_id=run_id,
         run_kind="investigate",
-        request={
-            "arch": "",
-            "playbook": "workflow:triage-v1",
-            "config": "",
-            "prompt": body.prompt,
-            "finding_ids": body.finding_ids,
-        },
+        request=job_request,
         enqueued_by=str(current_user.user_id),
         managed_envelope=envelope.as_dict(),
     )
     try:
+        _store.create(
+            run_id=run_id,
+            subject_id=str(current_user.user_id),
+            run_kind="investigate",
+            workflow_id=body.workflow_id,
+            status="queued",
+            request=job_request,
+            envelope=envelope.as_dict(),
+            admission=envelope.admission,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="managed admission store unavailable") from exc
+    try:
         job_id = await enqueue_run(job)
     except Exception as exc:
+        # The committed outbox is intentionally retained for a publisher retry.
         raise HTTPException(status_code=503, detail="managed run queue unavailable") from exc
-    result = ManagedRunResponse(
-        run_id=run_id,
-        execution_id=envelope.execution_id,
-        tenant_id=binding.tenant_id,
-        deployment_id=binding.deployment_id,
-        status="queued",
-        workflow_id=body.workflow_id,
-    )
-    _runs[run_id] = result
-    _run_subjects[run_id] = str(current_user.user_id)
     return ManagedStartResponse(
         run_id=run_id,
         job_id=job_id,
@@ -264,8 +286,10 @@ async def start_managed_run(
 def list_managed_runs(current_user: User = Depends(get_current_user)) -> ManagedRunListResponse:
     _require_managed_profile()
     _resolver.resolve(current_user, None)
-    owned = [run for run in _runs.values() if _run_subjects.get(run.run_id) == str(current_user.user_id)]
-    return ManagedRunListResponse(runs=sorted(owned, key=lambda item: item.run_id), count=len(owned))
+    binding = _resolver.resolve(current_user, None)
+    rows = _store.list(binding.tenant_id, str(current_user.user_id))
+    owned = [ManagedRunResponse(**{key: str(row[key]) for key in ("run_id", "execution_id", "tenant_id", "deployment_id", "status", "workflow_id")}) for row in rows]
+    return ManagedRunListResponse(runs=owned, count=len(owned))
 
 
 @router.get("/{run_id}", response_model=ManagedRunResponse)
@@ -278,10 +302,15 @@ def get_managed_run(run_id: str, current_user: User = Depends(get_current_user))
 def cancel_managed_run(run_id: str, current_user: User = Depends(get_current_user)) -> ManagedRunResponse:
     _require_managed_profile()
     existing = _owned_run(run_id, current_user)
-    _authority.revoke(existing.tenant_id)
-    cancelled = existing.model_copy(update={"status": "cancelled"})
-    _runs[existing.run_id] = cancelled
-    return cancelled
+    _authority.cancel_execution(existing.execution_id)
+    binding = _resolver.resolve(current_user, None)
+    try:
+        row = _store.cancel(existing.run_id, binding.tenant_id, str(current_user.user_id), existing.execution_id)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="managed lifecycle store unavailable") from exc
+    if row is None:
+        raise HTTPException(status_code=404, detail="managed run not found")
+    return ManagedRunResponse(**{key: str(row[key]) for key in ("run_id", "execution_id", "tenant_id", "deployment_id", "status", "workflow_id")})
 
 
 @router.post("/{run_id}/approve", response_model=ManagedRunResponse)
@@ -295,19 +324,71 @@ def approve_managed_run(
     approver_binding = _resolver.resolve(current_user, None)
     if not {"approver", "admin"}.intersection(approver_binding.roles):
         raise HTTPException(status_code=403, detail="authenticated subject is not an approver")
-    if _run_subjects.get(existing.run_id) == str(current_user.user_id):
+    if existing.status == "cancelled":
+        raise HTTPException(status_code=409, detail="cancelled execution cannot be approved")
+    owner_subject_id = _store.owner(existing.run_id, existing.tenant_id)
+    if owner_subject_id is None:
+        raise HTTPException(status_code=404, detail="managed run not found")
+    if owner_subject_id == str(current_user.user_id):
         raise HTTPException(status_code=403, detail="approval requires a distinct authorized approver")
     if not body.action or not body.resource or not body.argument_digest:
         raise HTTPException(status_code=422, detail="approval binding is incomplete")
-    approved = existing.model_copy(update={"status": "approved"})
-    _runs[existing.run_id] = approved
-    return approved
+    approval_digest = hashlib.sha256(json.dumps({
+        "execution_id": existing.execution_id,
+        "action": body.action,
+        "resource": body.resource,
+        "argument_digest": body.argument_digest,
+    }, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    _authority.approve_execution(
+        existing.execution_id,
+        approval_digest=approval_digest,
+        action=body.action,
+        resource=body.resource,
+        argument_digest=body.argument_digest,
+    )
+    try:
+        approved = _store.approve(
+            run_id=existing.run_id,
+            tenant_id=existing.tenant_id,
+            owner_subject_id=owner_subject_id,
+            execution_id=existing.execution_id,
+            approver_subject_id=str(current_user.user_id),
+            action=body.action,
+            resource=body.resource,
+            argument_digest=body.argument_digest,
+            policy_version=approver_binding.policy_version,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="managed approval store unavailable") from exc
+    if approved is None:
+        raise HTTPException(status_code=404, detail="managed run not found")
+    return ManagedRunResponse(**{key: str(approved[key]) for key in ("run_id", "execution_id", "tenant_id", "deployment_id", "status", "workflow_id")})
 
 
 @router.post("/{run_id}/resume", response_model=ManagedRunResponse, status_code=status.HTTP_202_ACCEPTED)
-def resume_managed_run(run_id: str, current_user: User = Depends(get_current_user)) -> ManagedRunResponse:
+async def resume_managed_run(run_id: str, current_user: User = Depends(get_current_user)) -> ManagedRunResponse:
     _require_managed_profile()
     existing = _owned_run(run_id, current_user)
-    resumed = existing.model_copy(update={"status": "queued"})
-    _runs[existing.run_id] = resumed
-    return resumed
+    binding = _resolver.resolve(current_user, None)
+    envelope_data = _store.envelope(existing.run_id, binding.tenant_id, str(current_user.user_id))
+    envelope = None if envelope_data is None else QueueEnvelope.from_dict(envelope_data)
+    if envelope is None:
+        raise HTTPException(status_code=503, detail="managed admission state is unavailable")
+    try:
+        resumed_envelope = _authority.reissue(envelope, reason="resume")
+        job = build_resume_job(
+            run_id=existing.run_id,
+            run_kind="investigate",
+            enqueued_by=str(current_user.user_id),
+            tenant_id=existing.tenant_id,
+            managed_envelope=resumed_envelope.as_dict(),
+        )
+        # This endpoint is deliberately async so success means the durable queue
+        # accepted the signed resume, not merely that API-local state changed.
+        await enqueue_run(job)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="managed run queue unavailable") from exc
+    resumed = _store.update_status(existing.run_id, binding.tenant_id, str(current_user.user_id), "queued")
+    if resumed is None:
+        raise HTTPException(status_code=404, detail="managed run not found")
+    return ManagedRunResponse(**{key: str(resumed[key]) for key in ("run_id", "execution_id", "tenant_id", "deployment_id", "status", "workflow_id")})

@@ -12,8 +12,7 @@ CREATE TABLE IF NOT EXISTS managed_deployments (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_managed_deployment_tenant
-    ON managed_deployments (tenant_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_managed_deployment_tenant ON managed_deployments (tenant_id);
 
 CREATE TABLE IF NOT EXISTS managed_memberships (
     tenant_id TEXT NOT NULL,
@@ -42,8 +41,43 @@ CREATE TABLE IF NOT EXISTS managed_admissions (
     status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'revoked', 'expired'))
 );
 
-CREATE INDEX IF NOT EXISTS idx_managed_admissions_execution
-    ON managed_admissions (execution_id, tenant_id, deployment_id);
+CREATE TABLE IF NOT EXISTS managed_runs (
+    run_id UUID PRIMARY KEY,
+    execution_id UUID NOT NULL UNIQUE REFERENCES managed_admissions(execution_id),
+    tenant_id TEXT NOT NULL,
+    deployment_id TEXT NOT NULL,
+    subject_id TEXT NOT NULL,
+    run_kind TEXT NOT NULL,
+    workflow_id TEXT NOT NULL,
+    status TEXT NOT NULL,
+    request JSONB NOT NULL,
+    envelope JSONB NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS managed_execution_claims (
+    execution_id UUID PRIMARY KEY REFERENCES managed_admissions(execution_id),
+    worker_key_id TEXT NOT NULL,
+    claim_token TEXT NOT NULL,
+    claim_version BIGINT NOT NULL DEFAULT 1 CHECK (claim_version > 0),
+    claimed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    claim_until TIMESTAMPTZ NOT NULL,
+    status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'fenced', 'cancelled'))
+);
+
+CREATE TABLE IF NOT EXISTS managed_approvals (
+    approval_id UUID PRIMARY KEY,
+    execution_id UUID NOT NULL REFERENCES managed_admissions(execution_id),
+    approver_subject_id TEXT NOT NULL,
+    action TEXT NOT NULL,
+    resource TEXT NOT NULL,
+    argument_digest TEXT NOT NULL,
+    policy_version TEXT NOT NULL,
+    expires_at TIMESTAMPTZ NOT NULL,
+    status TEXT NOT NULL DEFAULT 'approved' CHECK (status IN ('approved', 'expired', 'revoked')),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 
 CREATE TABLE IF NOT EXISTS managed_invocation_reservations (
     invocation_id UUID PRIMARY KEY,
@@ -69,6 +103,15 @@ CREATE TABLE IF NOT EXISTS managed_authorization_audit (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS managed_outbox (
+    outbox_id BIGSERIAL PRIMARY KEY,
+    aggregate_id UUID NOT NULL,
+    event_type TEXT NOT NULL,
+    payload JSONB NOT NULL,
+    published_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'vigil_agent') THEN
@@ -79,11 +122,7 @@ $$;
 
 ALTER ROLE vigil_agent NOSUPERUSER LOGIN;
 REVOKE ALL ON managed_deployments, managed_memberships, managed_admissions,
-  managed_invocation_reservations, managed_authorization_audit FROM vigil_agent;
+  managed_runs, managed_execution_claims, managed_approvals, managed_invocation_reservations,
+  managed_authorization_audit, managed_outbox FROM vigil_agent;
 GRANT SELECT, INSERT ON agent_events, agent_run_leases TO vigil_agent;
 GRANT UPDATE (owner, claim_until) ON agent_run_leases TO vigil_agent;
-
-COMMENT ON TABLE managed_admissions IS
-  'API-owned admission records; worker authorization uses the signed envelope and local policy.';
-COMMENT ON TABLE managed_authorization_audit IS
-  'Append-only managed gateway decisions, written before privileged side effects.';

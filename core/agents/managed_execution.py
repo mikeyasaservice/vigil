@@ -12,6 +12,7 @@ import base64
 import hashlib
 import json
 import secrets
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Iterable, Mapping, Optional
@@ -199,6 +200,7 @@ class ToolGrant:
     issued_at: datetime
     expires_at: datetime
     workload_key_id: str
+    claim_jti: str
 
 
 @dataclass(frozen=True)
@@ -211,6 +213,10 @@ class Invocation:
     arguments: Mapping[str, Any]
     grant: ToolGrant
     budget_units: int = 1
+
+    def __post_init__(self) -> None:
+        if self.budget_units <= 0:
+            raise ManagedSecurityError("invocation budget must be positive")
 
     @property
     def argument_digest(self) -> str:
@@ -263,11 +269,15 @@ class ManagedAuthority:
     """Fail-closed authority used by the managed API and gateway adapters."""
 
     signer: Ed25519Signer = field(default_factory=Ed25519Signer)
+    verifier: Optional[Ed25519Verifier] = None
     admissions: Dict[str, Admission] = field(default_factory=dict)
     executions: Dict[str, ExecutionIdentity] = field(default_factory=dict)
     grants: Dict[str, ToolGrant] = field(default_factory=dict)
     revoked_epochs: Dict[str, int] = field(default_factory=dict)
+    cancelled_executions: set[str] = field(default_factory=set)
+    approvals: Dict[str, tuple[str, str, str, str]] = field(default_factory=dict)
     invocation_results: Dict[str, tuple[str, Any]] = field(default_factory=dict)
+    invocation_reservations: Dict[str, str] = field(default_factory=dict)
     budgets: Dict[str, int] = field(default_factory=dict)
 
     def admit(
@@ -280,6 +290,7 @@ class ManagedAuthority:
         program_id: str,
         program_digest: str,
         request: Mapping[str, Any],
+        references: Optional[Mapping[str, str]] = None,
         ttl: timedelta = timedelta(minutes=5),
     ) -> QueueEnvelope:
         if ttl <= timedelta(0) or ttl > timedelta(hours=1):
@@ -302,12 +313,17 @@ class ManagedAuthority:
             revocation_epoch=epoch,
         )
         self.admissions[admission_id] = admission
-        execution_id = secrets.token_hex(16)
+        execution_id = str(uuid.uuid4())
         envelope = QueueEnvelope(
             admission=admission,
             execution_id=execution_id,
             reason="start",
-            references={"request_digest": admission.request_digest},
+            references={
+                "request_digest": admission.request_digest,
+                "run_id": str((references or {}).get("run_id", admission_id)),
+                "run_kind": str((references or {}).get("run_kind", "investigate")),
+                **({str(k): str(v) for k, v in (references or {}).items()}),
+            },
             signature="",
         )
         return QueueEnvelope(
@@ -319,7 +335,7 @@ class ManagedAuthority:
         )
 
     def verify_envelope(self, envelope: QueueEnvelope, *, deployment_id: str) -> Admission:
-        self.signer.verifier().verify(envelope.signed_payload, envelope.signature)
+        (self.verifier or self.signer.verifier()).verify(envelope.signed_payload, envelope.signature)
         admission = self.admissions.get(envelope.admission.admission_id)
         # The signed admission is intentionally self-contained so a queue
         # consumer in another process can verify it without sharing an API
@@ -328,6 +344,14 @@ class ManagedAuthority:
         if admission is not None and admission != envelope.admission:
             raise ManagedSecurityError("admission is unknown or has been altered")
         admission = envelope.admission
+        if not envelope.execution_id or len(envelope.execution_id) < 16:
+            raise ManagedSecurityError("managed execution id is invalid")
+        if envelope.references.get("request_digest") != admission.request_digest:
+            raise ManagedSecurityError("queue request binding is invalid")
+        if not envelope.references.get("run_id"):
+            raise ManagedSecurityError("queue run binding is missing")
+        if not envelope.references.get("run_kind"):
+            raise ManagedSecurityError("queue run kind binding is missing")
         if admission.context.deployment_id != deployment_id:
             raise ManagedSecurityError("queue target is not the admission deployment")
         if admission.expires_at <= _now():
@@ -336,13 +360,43 @@ class ManagedAuthority:
             raise ManagedSecurityError("admission was revoked")
         return admission
 
-    def claim(self, envelope: QueueEnvelope, *, worker_key_id: str, capabilities: Iterable[str]) -> ExecutionIdentity:
-        admission = self.verify_envelope(envelope, deployment_id=envelope.admission.context.deployment_id)
+    def reissue(self, envelope: QueueEnvelope, *, reason: str) -> QueueEnvelope:
+        """Issue a fresh queue signature without changing the admitted work."""
+        if reason not in {"start", "resume"}:
+            raise ManagedSecurityError("unsupported managed queue reason")
+        self.verify_envelope(envelope, deployment_id=envelope.admission.context.deployment_id)
+        renewed = QueueEnvelope(
+            admission=envelope.admission,
+            execution_id=envelope.execution_id,
+            reason=reason,
+            references=envelope.references,
+            signature="",
+        )
+        return QueueEnvelope(
+            admission=renewed.admission,
+            execution_id=renewed.execution_id,
+            reason=renewed.reason,
+            references=renewed.references,
+            signature=self.signer.sign(renewed.signed_payload),
+        )
+
+    def claim(
+        self,
+        envelope: QueueEnvelope,
+        *,
+        worker_key_id: str,
+        capabilities: Iterable[str],
+        deployment_id: Optional[str] = None,
+    ) -> ExecutionIdentity:
+        expected_deployment = deployment_id or envelope.admission.context.deployment_id
+        admission = self.verify_envelope(envelope, deployment_id=expected_deployment)
         existing = self.executions.get(envelope.execution_id)
         if existing is not None:
             if existing.worker_key_id != worker_key_id:
                 raise ManagedSecurityError("execution is fenced to another worker")
-            return existing
+            # A retry/takeover gets a fresh claim token. Grants issued under the
+            # previous token are rejected by authorize even when the worker key is
+            # unchanged.
         now = _now()
         identity = ExecutionIdentity(
             execution_id=envelope.execution_id,
@@ -364,10 +418,52 @@ class ManagedAuthority:
         self.budgets.setdefault(identity.execution_id, 100)
         return identity
 
+    @staticmethod
+    def _execution_attestation_payload(identity: ExecutionIdentity) -> dict[str, Any]:
+        return {
+            "aud": "vigil-managed-gateway",
+            "execution_id": identity.execution_id,
+            "tenant_id": identity.tenant_id,
+            "deployment_id": identity.deployment_id,
+            "worker_key_id": identity.worker_key_id,
+            "workflow_id": identity.workflow_id,
+            "workflow_digest": identity.workflow_digest,
+            "program_id": identity.program_id,
+            "program_digest": identity.program_digest,
+            "policy_version": identity.policy_version,
+            "revocation_epoch": identity.revocation_epoch,
+            "expires_at": identity.expires_at.isoformat(),
+            "jti": identity.jti,
+        }
+
+    def sign_execution_attestation(self, identity: ExecutionIdentity) -> str:
+        return self.signer.sign(self._execution_attestation_payload(identity))
+
+    def verify_execution_attestation(self, identity: ExecutionIdentity, attestation: str) -> None:
+        (self.verifier or self.signer.verifier()).verify(
+            self._execution_attestation_payload(identity), attestation
+        )
+
     def revoke(self, tenant_id: str) -> int:
         epoch = self.revoked_epochs.get(tenant_id, 0) + 1
         self.revoked_epochs[tenant_id] = epoch
         return epoch
+
+    def cancel_execution(self, execution_id: str) -> None:
+        self.cancelled_executions.add(execution_id)
+
+    def approve_execution(
+        self,
+        execution_id: str,
+        *,
+        approval_digest: str,
+        action: str,
+        resource: str,
+        argument_digest: str,
+    ) -> None:
+        if not approval_digest or not action or not resource or not argument_digest:
+            raise ManagedSecurityError("approval binding is incomplete")
+        self.approvals[approval_digest] = (execution_id, action, resource, argument_digest)
 
     def grant(
         self,
@@ -389,6 +485,11 @@ class ManagedAuthority:
         if ttl <= timedelta(0) or ttl > MAX_GRANT_TTL:
             raise ManagedSecurityError("tool grant lifetime exceeds the 60 second maximum")
         now = _now()
+        argument_digest = _digest(arguments)
+        if approval_digest is not None:
+            approval = self.approvals.get(approval_digest)
+            if approval != (identity.execution_id, action, resource, argument_digest):
+                raise ManagedSecurityError("approval binding is invalid")
         grant = ToolGrant(
             grant_id=grant_id,
             execution_id=identity.execution_id,
@@ -396,13 +497,14 @@ class ManagedAuthority:
             deployment_id=identity.deployment_id,
             action=action,
             resource=resource,
-            argument_digest=_digest(arguments),
+            argument_digest=argument_digest,
             approval_digest=approval_digest,
             policy_version=identity.policy_version,
             revocation_epoch=identity.revocation_epoch,
             issued_at=now,
             expires_at=min(identity.expires_at, now + ttl),
             workload_key_id=workload_key_id,
+            claim_jti=identity.jti,
         )
         self.grants[grant_id] = grant
         return grant
@@ -417,15 +519,36 @@ class ManagedAuthority:
             raise ManagedSecurityError("grant is unknown or has been altered")
         if grant.expires_at <= _now():
             raise ManagedSecurityError("grant has expired")
-        if grant.tenant_id != invocation.tenant_id or grant.action != invocation.action:
+        if grant.execution_id != identity.execution_id or invocation.execution_id != grant.execution_id:
+            raise ManagedSecurityError("grant execution does not match invocation")
+        if grant.tenant_id != identity.tenant_id or grant.deployment_id != identity.deployment_id:
+            raise ManagedSecurityError("grant tenant does not match execution")
+        if grant.workload_key_id != identity.worker_key_id:
+            raise ManagedSecurityError("grant workload does not match execution")
+        if grant.claim_jti != identity.jti:
+            raise ManagedSecurityError("grant belongs to a fenced claim")
+        if grant.policy_version != identity.policy_version or grant.revocation_epoch != identity.revocation_epoch:
+            raise ManagedSecurityError("grant policy is stale")
+        if invocation.tenant_id != identity.tenant_id or grant.action != invocation.action:
             raise ManagedSecurityError("invocation identity does not match grant")
         if grant.resource != invocation.resource or grant.argument_digest != invocation.argument_digest:
             raise ManagedSecurityError("invocation arguments are outside the grant")
+        if grant.approval_digest is not None:
+            approval = self.approvals.get(grant.approval_digest)
+            if approval != (identity.execution_id, invocation.action, invocation.resource, invocation.argument_digest):
+                raise ManagedSecurityError("approval binding is invalid")
+        digest = _digest({"action": invocation.action, "resource": invocation.resource, "arguments": dict(invocation.arguments)})
+        prior = self.invocation_reservations.get(invocation.invocation_id)
+        if prior is not None:
+            if prior != digest:
+                raise ManagedSecurityError("invocation id was reused with different content")
+            return
         remaining = self.budgets.get(identity.execution_id)
         if remaining is None:
             raise AuthorizationUnavailable("execution budget state is unavailable")
         if remaining < invocation.budget_units:
             raise ManagedSecurityError("execution budget exhausted")
+        self.invocation_reservations[invocation.invocation_id] = digest
         self.budgets[identity.execution_id] = remaining - invocation.budget_units
 
     def record_invocation(self, invocation: Invocation, result: Any) -> None:
@@ -436,6 +559,8 @@ class ManagedAuthority:
         self.invocation_results[invocation.invocation_id] = (digest, result)
 
     def _check_execution(self, identity: ExecutionIdentity) -> None:
+        if identity.execution_id in self.cancelled_executions:
+            raise ManagedSecurityError("execution was cancelled")
         if identity.expires_at <= _now():
             raise ManagedSecurityError("execution identity has expired")
         if identity.revocation_epoch < self.revoked_epochs.get(identity.tenant_id, 0):
