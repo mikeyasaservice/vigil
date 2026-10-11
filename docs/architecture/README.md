@@ -45,6 +45,8 @@ customer demand has not yet been supplied.
    [recovery](../operations/backup-and-recovery.md), [offboarding](../operations/tenant-offboarding.md),
    [migration and phased delivery](migration-strategy.md).
 7. [Phase 2 implementation and validation](phase2-validation.md).
+8. [Phase 3 managed dedicated implementation](phase3-implementation.md) and
+   [current Phase 3 validation evidence](phase3-validation.md).
 
 ## Validation meaning
 

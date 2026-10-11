@@ -1,0 +1,236 @@
+openapi: 3.1.0
+info:
+  title: Vigil Management Plane API
+  version: 3.0.0
+  description: Durable, tenant-scoped lifecycle operations for managed dedicated deployments.
+servers:
+  - url: https://management.invalid
+paths:
+  /livez:
+    get:
+      operationId: getManagementLiveness
+      security: []
+      responses:
+        '200': {description: Process is live, content: {application/json: {schema: {$ref: '#/components/schemas/Health'}}}}
+  /readyz:
+    get:
+      operationId: getManagementReadiness
+      security: []
+      responses:
+        '200': {description: Management database is ready, content: {application/json: {schema: {$ref: '#/components/schemas/Health'}}}}
+        '503': {$ref: '#/components/responses/Error'}
+  /v1/deployments/{deployment_id}/operations:
+    post:
+      operationId: requestDeploymentOperation
+      security: [{operatorBearer: []}]
+      parameters:
+        - $ref: '#/components/parameters/DeploymentId'
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: {type: string, minLength: 1, maxLength: 200}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/OperationRequest'}
+      responses:
+        '202': {$ref: '#/components/responses/Operation'}
+        '403': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
+        '503': {$ref: '#/components/responses/Error'}
+  /v1/deployments/{deployment_id}:
+    get:
+      operationId: getDeployment
+      security: [{operatorBearer: []}]
+      parameters: [{$ref: '#/components/parameters/DeploymentId'}]
+      responses:
+        '200': {description: Deployment state, content: {application/json: {schema: {type: object}}}}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+  /v1/operations/{operation_id}:
+    get:
+      operationId: getOperation
+      security: [{operatorBearer: []}]
+      parameters: [{$ref: '#/components/parameters/OperationId'}]
+      responses:
+        '200': {$ref: '#/components/responses/Operation'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+  /v1/operations/{operation_id}/approve:
+    post:
+      operationId: approveOperation
+      security: [{operatorBearer: []}]
+      parameters: [{$ref: '#/components/parameters/OperationId'}]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: '#/components/schemas/OperationApproval'}}}
+      responses:
+        '200': {$ref: '#/components/responses/Operation'}
+        '403': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+  /v1/operations/{operation_id}/cancel:
+    post:
+      operationId: cancelOperation
+      security: [{operatorBearer: []}]
+      parameters: [{$ref: '#/components/parameters/OperationId'}]
+      responses:
+        '200': {$ref: '#/components/responses/Operation'}
+        '403': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+  /internal/v1/operations/{operation_id}/claim:
+    post:
+      operationId: claimReconcileOperation
+      security: [{reconcilerWorkload: []}]
+      parameters: [{$ref: '#/components/parameters/OperationId'}]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: '#/components/schemas/ReconcileClaim'}}}
+      responses:
+        '200': {$ref: '#/components/responses/SignedCommand'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+  /internal/v1/operations/{operation_id}/plan-ready:
+    post:
+      operationId: recordReconcilePlan
+      security: [{reconcilerWorkload: []}]
+      parameters: [{$ref: '#/components/parameters/OperationId'}, {$ref: '#/components/parameters/RunnerId'}]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: '#/components/schemas/PlanReady'}}}
+      responses:
+        '200': {$ref: '#/components/responses/Operation'}
+        '401': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+  /internal/v1/operations/{operation_id}/complete:
+    post:
+      operationId: completeReconcileOperation
+      security: [{reconcilerWorkload: []}]
+      parameters: [{$ref: '#/components/parameters/OperationId'}, {$ref: '#/components/parameters/RunnerId'}]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: '#/components/schemas/OperationReceipt'}}}
+      responses:
+        '200': {description: Updated deployment, content: {application/json: {schema: {type: object}}}}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+  /internal/v1/operations/{operation_id}/fail:
+    post:
+      operationId: failReconcileOperation
+      security: [{reconcilerWorkload: []}]
+      parameters: [{$ref: '#/components/parameters/OperationId'}, {$ref: '#/components/parameters/RunnerId'}]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: '#/components/schemas/OperationFailure'}}}
+      responses:
+        '200': {$ref: '#/components/responses/Operation'}
+        '401': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+components:
+  securitySchemes:
+    operatorBearer: {type: http, scheme: bearer, bearerFormat: JWT}
+    reconcilerWorkload:
+      type: mutualTLS
+      description: Hypercorn requires a trusted client certificate and the application reads its single SPIFFE URI SAN from the verified ASGI TLS extension.
+  parameters:
+    DeploymentId: {name: deployment_id, in: path, required: true, schema: {type: string}}
+    OperationId: {name: operation_id, in: path, required: true, schema: {type: string, format: uuid}}
+    RunnerId: {name: X-Vigil-Runner-Id, in: header, required: true, schema: {type: string, minLength: 1, maxLength: 200}}
+  schemas:
+    Health:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties:
+        status: {type: string, const: ok}
+    OperationRequest:
+      type: object
+      additionalProperties: false
+      required: [operation_kind, manifest]
+      properties:
+        operation_kind: {type: string, enum: [provision, configure, upgrade, rollback]}
+        manifest: {$ref: './deployment-manifest.schema.json'}
+    OperationApproval:
+      type: object
+      additionalProperties: false
+      required: [manifest_digest, plan_hash, expires_at]
+      properties:
+        manifest_digest: {$ref: '#/components/schemas/Sha256'}
+        plan_hash: {$ref: '#/components/schemas/Sha256'}
+        expires_at: {type: string, format: date-time}
+    ReconcileClaim:
+      type: object
+      additionalProperties: false
+      required: [phase, runner_id]
+      properties:
+        phase: {type: string, enum: [plan, apply]}
+        runner_id: {type: string, minLength: 1, maxLength: 200}
+    PlanReady:
+      type: object
+      additionalProperties: false
+      required: [command_id, fencing_token, manifest_digest, plan_hash]
+      properties:
+        command_id: {type: string, format: uuid}
+        fencing_token: {type: integer, minimum: 1}
+        manifest_digest: {$ref: '#/components/schemas/Sha256'}
+        plan_hash: {$ref: '#/components/schemas/Sha256'}
+    OperationFailure:
+      type: object
+      additionalProperties: false
+      required: [command_id, fencing_token, phase, error_code, error_detail]
+      properties:
+        command_id: {type: string, format: uuid}
+        fencing_token: {type: integer, minimum: 1}
+        phase: {type: string, enum: [plan, apply]}
+        error_code: {type: string, pattern: '^[a-z0-9][a-z0-9_.-]{0,127}$'}
+        error_detail: {type: string, minLength: 1, maxLength: 4000}
+    OperationReceipt:
+      type: object
+      additionalProperties: false
+      required: [operation_id, command_id, deployment_id, tenant_id, fencing_token, manifest_digest, plan_hash, observed_generation, resource_inventory, verification_summary, completed_at, signature]
+      properties:
+        operation_id: {type: string, format: uuid}
+        command_id: {type: string, format: uuid}
+        deployment_id: {type: string}
+        tenant_id: {type: string}
+        fencing_token: {type: integer, minimum: 1}
+        manifest_digest: {$ref: '#/components/schemas/Sha256'}
+        plan_hash: {$ref: '#/components/schemas/Sha256'}
+        observed_generation: {type: integer, minimum: 1}
+        resource_inventory: {type: object, additionalProperties: {type: string}}
+        verification_summary: {type: object, additionalProperties: {type: [string, integer, boolean]}}
+        provider_update_id: {type: [string, 'null']}
+        completed_at: {type: string, format: date-time}
+        signature: {type: string, minLength: 32}
+    SignedCommand:
+      type: object
+      additionalProperties: false
+      required: [command, signature, manifest]
+      properties:
+        command: {type: object}
+        signature: {type: string, minLength: 32}
+        manifest: {$ref: './deployment-manifest.schema.json'}
+    Operation:
+      type: object
+      additionalProperties: true
+      required: [operation_id, deployment_id, tenant_id, operation_kind, manifest_digest, target_generation, fencing_token, status]
+      properties:
+        operation_id: {type: string, format: uuid}
+        deployment_id: {type: string}
+        tenant_id: {type: string}
+        operation_kind: {type: string}
+        manifest_digest: {$ref: '#/components/schemas/Sha256'}
+        target_generation: {type: integer}
+        fencing_token: {type: integer}
+        status: {type: string}
+    Sha256: {type: string, pattern: '^[a-f0-9]{64}$'}
+    Error:
+      type: object
+      properties: {detail: {}}
+  responses:
+    Operation: {description: Durable operation state, content: {application/json: {schema: {$ref: '#/components/schemas/Operation'}}}}
+    SignedCommand: {description: Signed short-lived command and exact manifest, content: {application/json: {schema: {$ref: '#/components/schemas/SignedCommand'}}}}
+    Error: {description: Typed refusal, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}

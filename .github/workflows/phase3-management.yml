@@ -1,0 +1,89 @@
+name: Phase 3 managed dedicated foundation
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/phase3-management.yml"
+      - "contracts/deployment-manifest.schema.json"
+      - "contracts/management-plane.openapi.yaml"
+      - "contracts/postman/management-plane.collection.json"
+      - "docs/architecture/contracts/deployment-manifest.example.json"
+      - "infra/docker/Dockerfile.management"
+      - "infra/management/**"
+      - "infra/phase3-aws/**"
+      - "scripts/generate_management_postman.py"
+      - "services/management/**"
+      - "tests/management/**"
+  workflow_dispatch:
+
+jobs:
+  management-contracts:
+    name: Contracts, workload identity and durable lifecycle
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: phase3-ci
+          POSTGRES_DB: vigil_management
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d vigil_management"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      PHASE3_TEST_DATABASE_URL: postgresql://postgres:phase3-ci@127.0.0.1:5432/vigil_management
+      PYTHONPATH: .
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install locked application dependencies
+        run: python -m pip install -r requirements.lock
+      - name: Install management service dependencies
+        run: python -m pip install -r services/management/requirements.txt
+      - name: Verify generated Postman artifact is current
+        run: |
+          cp contracts/postman/management-plane.collection.json /tmp/management-plane.collection.json
+          python scripts/generate_management_postman.py
+          diff -u /tmp/management-plane.collection.json contracts/postman/management-plane.collection.json
+      - name: Run management tests
+        run: >-
+          python -m pytest -q -o addopts=''
+          tests/management/test_contracts.py
+          tests/management/test_health.py
+          tests/management/test_operator_auth.py
+          tests/management/test_workload_identity.py
+          tests/management/test_store_integration.py
+
+  aws-reconciler:
+    name: AWS component and reconciler
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: infra/phase3-aws
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+          cache-dependency-path: infra/phase3-aws/go.sum
+      - run: go test ./...
+      - run: go vet ./...
+
+  management-image:
+    name: Management image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build non-root management image
+        run: docker build -f infra/docker/Dockerfile.management -t vigil-management:phase3 .
+      - name: Verify missing trust configuration fails closed
+        run: |
+          if docker run --rm vigil-management:phase3; then
+            echo "management service unexpectedly started without trust configuration" >&2
+            exit 1
+          fi

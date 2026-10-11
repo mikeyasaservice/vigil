@@ -1,0 +1,204 @@
+from __future__ import annotations
+
+import re
+import uuid
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+
+_LOCAL_REF = re.compile(r"^local:[A-Za-z0-9][A-Za-z0-9._/-]{0,254}$")
+_APPROVED_REF = re.compile(r"^approved:sha256:[a-f0-9]{64}$")
+
+
+class ClosedModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+class ReleaseRef(ClosedModel):
+    version: str = Field(min_length=1, max_length=128)
+    digest_ref: str
+
+    @model_validator(mode="after")
+    def immutable_digest(self):
+        if not _APPROVED_REF.fullmatch(self.digest_ref):
+            raise ValueError("release digest must be an approved sha256 reference")
+        return self
+
+
+class DSPyRelease(ReleaseRef):
+    program_id: str = Field(min_length=1, max_length=128)
+    approval_ref: str
+    model_config_ref: str
+
+
+class ReleaseSet(ClosedModel):
+    application: ReleaseRef
+    harness: ReleaseRef
+    infrastructure: ReleaseRef
+    database_schema: str = Field(min_length=1, max_length=128)
+    policy: ReleaseRef
+    dspy: DSPyRelease
+
+
+class Placement(ClosedModel):
+    adapter: Literal["aws-kubernetes"]
+    account_binding_ref: str
+    region: str = Field(pattern=r"^[a-z]{2}-[a-z]+-[1-9][0-9]*$")
+    network_binding_ref: str
+    state_binding_ref: str
+
+
+class Isolation(ClosedModel):
+    application: Literal["dedicated-runtime"]
+    execution: Literal["dedicated-tenant-nodes"]
+    database: Literal["dedicated-instance"]
+    queue_cache: Literal["dedicated-instance"]
+
+
+class Storage(ClosedModel):
+    database_ref: str
+    object_store_ref: str
+    memory_ref: str
+    queue_ref: str
+    key_ref: str
+    retention_policy_ref: str
+
+
+class Credentials(ClosedModel):
+    integration_secret_refs: list[str] = Field(max_length=64)
+    workload_identity_ref: str
+
+
+class Network(ClosedModel):
+    ingress_policy_ref: str
+    egress_policy_ref: str
+    management_transport: Literal["outbound-mtls-https"]
+    artifact_mirror_ref: str
+
+
+class OperationsPolicy(ClosedModel):
+    budget_policy_ref: str
+    export_policy_ref: str
+    backup_policy_ref: str
+    recovery_targets_ref: str
+    maintenance_policy_ref: str
+    support_policy_ref: str
+    approval_ref: str
+    rollback_compatibility_ref: str
+
+
+class DeploymentManifest(ClosedModel):
+    contract_version: Literal["managed-soc/v1"]
+    tenant_id: str = Field(pattern=r"^[a-z0-9][a-z0-9-]{2,62}$")
+    deployment_id: str = Field(pattern=r"^[a-z0-9][a-z0-9-]{2,62}$")
+    incarnation: uuid.UUID
+    generation: int = Field(ge=1)
+    expected_generation: int = Field(ge=0)
+    mode: Literal["managed-dedicated"]
+    placement: Placement
+    releases: ReleaseSet
+    isolation: Isolation
+    storage: Storage
+    credentials: Credentials
+    network: Network
+    operations: OperationsPolicy
+
+    @model_validator(mode="after")
+    def validate_refs_and_generation(self):
+        if self.generation != self.expected_generation + 1:
+            raise ValueError("generation must advance exactly once")
+        local_refs = [
+            self.placement.account_binding_ref,
+            self.placement.network_binding_ref,
+            self.placement.state_binding_ref,
+            self.releases.dspy.approval_ref,
+            self.releases.dspy.model_config_ref,
+            self.storage.database_ref,
+            self.storage.object_store_ref,
+            self.storage.memory_ref,
+            self.storage.queue_ref,
+            self.storage.key_ref,
+            self.storage.retention_policy_ref,
+            *self.credentials.integration_secret_refs,
+            self.credentials.workload_identity_ref,
+            self.network.ingress_policy_ref,
+            self.network.egress_policy_ref,
+            self.network.artifact_mirror_ref,
+            self.operations.budget_policy_ref,
+            self.operations.export_policy_ref,
+            self.operations.backup_policy_ref,
+            self.operations.recovery_targets_ref,
+            self.operations.maintenance_policy_ref,
+            self.operations.support_policy_ref,
+            self.operations.approval_ref,
+        ]
+        if any(not _LOCAL_REF.fullmatch(value) for value in local_refs):
+            raise ValueError("deployment references must be trusted local references")
+        if not _APPROVED_REF.fullmatch(self.operations.rollback_compatibility_ref):
+            raise ValueError("rollback compatibility must be an approved sha256 reference")
+        if len(set(self.credentials.integration_secret_refs)) != len(self.credentials.integration_secret_refs):
+            raise ValueError("integration secret references must be unique")
+        return self
+
+
+class OperationRequest(ClosedModel):
+    operation_kind: Literal["provision", "configure", "upgrade", "rollback"]
+    manifest: DeploymentManifest
+
+
+class OperationApproval(ClosedModel):
+    manifest_digest: str = Field(pattern=r"^[a-f0-9]{64}$")
+    plan_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
+    expires_at: str
+
+
+class OperationResponse(ClosedModel):
+    operation_id: uuid.UUID
+    deployment_id: str
+    tenant_id: str
+    operation_kind: str
+    manifest_digest: str
+    plan_hash: str | None = None
+    expected_generation: int
+    target_generation: int
+    fencing_token: int
+    status: str
+    created_at: str
+    updated_at: str
+
+
+class ReconcileClaimRequest(ClosedModel):
+    phase: Literal["plan", "apply"]
+    runner_id: str = Field(min_length=1, max_length=200)
+
+
+class PlanReadyRequest(ClosedModel):
+    command_id: uuid.UUID
+    fencing_token: int = Field(gt=0)
+    manifest_digest: str = Field(pattern=r"^[a-f0-9]{64}$")
+    plan_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
+
+
+class OperationFailure(ClosedModel):
+    command_id: uuid.UUID
+    fencing_token: int = Field(gt=0)
+    phase: Literal["plan", "apply"]
+    error_code: str = Field(pattern=r"^[a-z0-9][a-z0-9_.-]{0,127}$")
+    error_detail: str = Field(min_length=1, max_length=4000)
+
+
+class OperationReceipt(ClosedModel):
+    operation_id: uuid.UUID
+    command_id: uuid.UUID
+    deployment_id: str
+    tenant_id: str
+    fencing_token: int = Field(gt=0)
+    manifest_digest: str = Field(pattern=r"^[a-f0-9]{64}$")
+    plan_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
+    observed_generation: int = Field(gt=0)
+    resource_inventory: dict[str, str]
+    verification_summary: dict[str, str | int | bool]
+    provider_update_id: str | None = None
+    completed_at: str
+    signature: str = Field(min_length=32)

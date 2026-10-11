@@ -1,0 +1,7 @@
+cryptography==50.0.2
+fastapi==0.141.1
+hypercorn==0.17.3
+psycopg2-binary==2.9.12
+pydantic==2.13.4
+PyJWT==2.13.0
+rfc8785==0.0.2

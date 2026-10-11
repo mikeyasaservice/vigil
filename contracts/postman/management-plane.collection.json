@@ -1,0 +1,504 @@
+{
+  "info": {
+    "name": "Vigil Management Plane (local)",
+    "description": "Generated from contracts/management-plane.openapi.yaml. Keep credentials in a local environment; do not publish this collection.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://127.0.0.1:8090"
+    },
+    {
+      "key": "deploymentId",
+      "value": "deployment-example-a"
+    },
+    {
+      "key": "operationId",
+      "value": "00000000-0000-4000-8000-000000000000"
+    },
+    {
+      "key": "operatorToken",
+      "value": ""
+    },
+    {
+      "key": "runnerId",
+      "value": "reconciler-local-1"
+    },
+    {
+      "key": "idempotencyKey",
+      "value": "local-provision-1"
+    }
+  ],
+  "item": [
+    {
+      "name": "getManagementLiveness",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/livez",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "livez"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('response is JSON', () => pm.response.to.be.json);",
+              "pm.test('server did not fail open', () => pm.expect(pm.response.code).to.not.equal(500));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "getManagementReadiness",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/readyz",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "readyz"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('response is JSON', () => pm.response.to.be.json);",
+              "pm.test('server did not fail open', () => pm.expect(pm.response.code).to.not.equal(500));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "requestDeploymentOperation",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{operatorToken}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Idempotency-Key",
+            "value": "{{idempotencyKey}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/v1/deployments/{{deploymentId}}/operations",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "v1",
+            "deployments",
+            "{{deploymentId}}",
+            "operations"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{{requestDeploymentOperationBody}}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('response is JSON', () => pm.response.to.be.json);",
+              "pm.test('server did not fail open', () => pm.expect(pm.response.code).to.not.equal(500));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "getDeployment",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{operatorToken}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/v1/deployments/{{deploymentId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "v1",
+            "deployments",
+            "{{deploymentId}}"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('response is JSON', () => pm.response.to.be.json);",
+              "pm.test('server did not fail open', () => pm.expect(pm.response.code).to.not.equal(500));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "getOperation",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{operatorToken}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/v1/operations/{{operationId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "v1",
+            "operations",
+            "{{operationId}}"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('response is JSON', () => pm.response.to.be.json);",
+              "pm.test('server did not fail open', () => pm.expect(pm.response.code).to.not.equal(500));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "approveOperation",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{operatorToken}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/v1/operations/{{operationId}}/approve",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "v1",
+            "operations",
+            "{{operationId}}",
+            "approve"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{{approveOperationBody}}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('response is JSON', () => pm.response.to.be.json);",
+              "pm.test('server did not fail open', () => pm.expect(pm.response.code).to.not.equal(500));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "cancelOperation",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{operatorToken}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/v1/operations/{{operationId}}/cancel",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "v1",
+            "operations",
+            "{{operationId}}",
+            "cancel"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('response is JSON', () => pm.response.to.be.json);",
+              "pm.test('server did not fail open', () => pm.expect(pm.response.code).to.not.equal(500));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "claimReconcileOperation",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "X-Vigil-Runner-Id",
+            "value": "{{runnerId}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/internal/v1/operations/{{operationId}}/claim",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "internal",
+            "v1",
+            "operations",
+            "{{operationId}}",
+            "claim"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{{claimReconcileOperationBody}}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('response is JSON', () => pm.response.to.be.json);",
+              "pm.test('server did not fail open', () => pm.expect(pm.response.code).to.not.equal(500));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "recordReconcilePlan",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "X-Vigil-Runner-Id",
+            "value": "{{runnerId}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/internal/v1/operations/{{operationId}}/plan-ready",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "internal",
+            "v1",
+            "operations",
+            "{{operationId}}",
+            "plan-ready"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{{recordReconcilePlanBody}}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('response is JSON', () => pm.response.to.be.json);",
+              "pm.test('server did not fail open', () => pm.expect(pm.response.code).to.not.equal(500));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "completeReconcileOperation",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "X-Vigil-Runner-Id",
+            "value": "{{runnerId}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/internal/v1/operations/{{operationId}}/complete",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "internal",
+            "v1",
+            "operations",
+            "{{operationId}}",
+            "complete"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{{completeReconcileOperationBody}}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('response is JSON', () => pm.response.to.be.json);",
+              "pm.test('server did not fail open', () => pm.expect(pm.response.code).to.not.equal(500));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "failReconcileOperation",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "X-Vigil-Runner-Id",
+            "value": "{{runnerId}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/internal/v1/operations/{{operationId}}/fail",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "internal",
+            "v1",
+            "operations",
+            "{{operationId}}",
+            "fail"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{{failReconcileOperationBody}}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('response is JSON', () => pm.response.to.be.json);",
+              "pm.test('server did not fail open', () => pm.expect(pm.response.code).to.not.equal(500));"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

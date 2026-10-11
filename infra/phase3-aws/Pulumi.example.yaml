@@ -1,0 +1,3 @@
+config:
+  vigil-managed-dedicated-aws:manifestPath: /run/vigil/operation/manifest.json
+  vigil-managed-dedicated-aws:bindingPath: /run/vigil/bindings/deployment.json

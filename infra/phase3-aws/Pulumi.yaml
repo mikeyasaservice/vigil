@@ -1,0 +1,3 @@
+name: vigil-managed-dedicated-aws
+runtime: go
+description: Dedicated AWS data plane for one bound Vigil tenant deployment
