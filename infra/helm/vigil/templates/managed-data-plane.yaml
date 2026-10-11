@@ -1,0 +1,253 @@
+{{- if .Values.managedExecution.enabled }}
+{{- $root := include "vigil.fullname" . -}}
+{{- $ns := .Release.Namespace -}}
+{{- $td := required "managedExecution.trustDomain is required" .Values.managedExecution.trustDomain -}}
+{{- $trust := required "managedExecution.trustSecretName is required" .Values.managedExecution.trustSecretName -}}
+{{- $workerId := printf "spiffe://%s/ns/%s/sa/%s-agent-worker" $td $ns $root -}}
+{{- $securityId := printf "spiffe://%s/ns/%s/sa/%s-security" $td $ns $root -}}
+{{- range $component, $port := dict "security" .Values.managedExecution.security.servicePort "connector" .Values.managedExecution.connector.servicePort "reasoner" .Values.managedExecution.reasoner.servicePort }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $root }}-{{ $component }}
+  namespace: {{ $ns }}
+  labels:
+    {{- include "vigil.componentLabels" (dict "context" $ "component" $component) | nindent 4 }}
+spec:
+  selector:
+    {{- include "vigil.componentSelectorLabels" (dict "context" $ "component" $component) | nindent 4 }}
+  ports:
+    - { name: mtls, port: {{ $port }}, targetPort: mtls }
+{{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $root }}-security
+  namespace: {{ $ns }}
+  labels:
+    {{- include "vigil.componentLabels" (dict "context" . "component" "security") | nindent 4 }}
+spec:
+  replicas: {{ .Values.managedExecution.security.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "vigil.componentSelectorLabels" (dict "context" . "component" "security") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "vigil.componentSelectorLabels" (dict "context" . "component" "security") | nindent 8 }}
+    spec:
+      serviceAccountName: {{ $root }}-security
+      automountServiceAccountToken: false
+      securityContext: {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      initContainers:
+        - name: render-envoy
+          image: busybox:1.37.0
+          command: ["/bin/sh", "-ec"]
+          args: ["sed 's|__PROXY_TOKEN__|'\"$VIGIL_IDENTITY_PROXY_TOKEN\"'|g' /templates/security.yaml.tmpl > /rendered/envoy.yaml"]
+          env:
+            - name: VIGIL_IDENTITY_PROXY_TOKEN
+              valueFrom: { secretKeyRef: { name: {{ $trust }}, key: {{ .Values.managedExecution.identityProxyTokenSecretKey }} } }
+          volumeMounts: [{ name: envoy-template, mountPath: /templates, readOnly: true }, { name: envoy-rendered, mountPath: /rendered }]
+          securityContext: {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+        - name: wait-security-schema
+          image: "{{ .Values.dbInit.image.repository }}:{{ .Values.dbInit.image.tag }}"
+          env:
+            - { name: PGHOST, value: {{ include "vigil.postgres.host" . | quote }} }
+            - { name: PGPORT, value: {{ include "vigil.postgres.port" . | quote }} }
+            - { name: PGDATABASE, value: {{ include "vigil.postgres.database" . | quote }} }
+            - { name: PGUSER, value: vigil_security }
+            - name: PGPASSWORD
+              valueFrom: { secretKeyRef: { name: {{ include "vigil.postgres.passwordSecret" . }}, key: {{ include "vigil.postgres.passwordSecretKey" . }} } }
+          command: ["/bin/sh", "-ec"]
+          args: ["for i in $(seq 1 120); do psql -v ON_ERROR_STOP=1 -c 'SELECT 1 FROM managed_admissions LIMIT 0' >/dev/null 2>&1 && exit 0; sleep 2; done; echo 'security schema unavailable' >&2; exit 1"]
+          securityContext: {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+      containers:
+        - name: security
+          image: {{ include "vigil.image" (dict "context" . "component" "backend") | quote }}
+          command: ["uvicorn", "services.security.app:app", "--host", "127.0.0.1", "--port", "8081"]
+          env:
+            - { name: HOME, value: /home/vigil }
+            - { name: VIGIL_EXECUTION_PROFILE, value: managed }
+            - { name: VIGIL_DEPLOYMENT_ID, value: {{ required "managedExecution.deploymentId is required" .Values.managedExecution.deploymentId | quote }} }
+            - { name: VIGIL_WORKER_SPIFFE_ID, value: {{ $workerId | quote }} }
+            - { name: VIGIL_MANAGED_CAPABILITIES, value: {{ .Values.managedExecution.capabilities | quote }} }
+            - { name: VIGIL_MANAGED_BUILTIN_TOOLS, value: {{ .Values.managedExecution.connector.builtinTools | quote }} }
+            - { name: VIGIL_CONNECTOR_URL, value: "http://127.0.0.1:15003/v1/invoke" }
+            - { name: POSTGRES_HOST, value: {{ include "vigil.postgres.host" . | quote }} }
+            - { name: POSTGRES_PORT, value: {{ include "vigil.postgres.port" . | quote }} }
+            - { name: POSTGRES_DB, value: {{ include "vigil.postgres.database" . | quote }} }
+            - { name: POSTGRES_USER, value: vigil_security }
+            - name: POSTGRES_PASSWORD
+              valueFrom: { secretKeyRef: { name: {{ include "vigil.postgres.passwordSecret" . }}, key: {{ include "vigil.postgres.passwordSecretKey" . }} } }
+            - name: VIGIL_MANAGED_AUTHORITY_PRIVATE_KEY
+              valueFrom: { secretKeyRef: { name: {{ $trust }}, key: {{ .Values.managedExecution.authorityPrivateKeySecretKey }} } }
+            - name: VIGIL_MANAGED_AUTHORITY_PUBLIC_KEY
+              valueFrom: { secretKeyRef: { name: {{ $trust }}, key: {{ .Values.managedExecution.authorityPublicKeySecretKey }} } }
+            - name: VIGIL_IDENTITY_PROXY_TOKEN
+              valueFrom: { secretKeyRef: { name: {{ $trust }}, key: {{ .Values.managedExecution.identityProxyTokenSecretKey }} } }
+          resources: {{- toYaml .Values.managedExecution.security.resources | nindent 12 }}
+          securityContext: {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          readinessProbe:
+            exec:
+              command: ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8081/healthz', timeout=2).read()"]
+            initialDelaySeconds: 5
+            periodSeconds: 10
+        - name: identity-proxy
+          image: {{ .Values.managedExecution.envoy.image | quote }}
+          args: ["-c", "/etc/envoy/envoy.yaml", "--log-level", "warn"]
+          ports: [{ name: mtls, containerPort: {{ .Values.managedExecution.security.servicePort }} }]
+          resources: {{- toYaml .Values.managedExecution.envoy.resources | nindent 12 }}
+          securityContext: {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          volumeMounts: [{ name: envoy-rendered, mountPath: /etc/envoy, readOnly: true }, { name: spire-agent-socket, mountPath: /run/spire/sockets/agent.sock, readOnly: true }]
+      volumes:
+        - name: envoy-template
+          configMap: { name: {{ $root }}-managed-envoy, items: [{ key: security.yaml.tmpl, path: security.yaml.tmpl }] }
+        - { name: envoy-rendered, emptyDir: {} }
+        - name: spire-agent-socket
+          hostPath: { path: {{ .Values.managedExecution.spireAgentSocketHostPath | quote }}, type: Socket }
+      {{- with .Values.managedExecution.nodeSelector }}
+      nodeSelector: {{- toYaml . | nindent 8 }}
+      {{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $root }}-connector
+  namespace: {{ $ns }}
+  labels:
+    {{- include "vigil.componentLabels" (dict "context" . "component" "connector") | nindent 4 }}
+spec:
+  replicas: {{ .Values.managedExecution.connector.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "vigil.componentSelectorLabels" (dict "context" . "component" "connector") | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "vigil.componentSelectorLabels" (dict "context" . "component" "connector") | nindent 8 }}
+    spec:
+      serviceAccountName: {{ $root }}-connector
+      automountServiceAccountToken: false
+      securityContext: {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      initContainers:
+        - name: render-envoy
+          image: busybox:1.37.0
+          command: ["/bin/sh", "-ec"]
+          args: ["sed 's|__PROXY_TOKEN__|'\"$VIGIL_IDENTITY_PROXY_TOKEN\"'|g' /templates/connector.yaml.tmpl > /rendered/envoy.yaml"]
+          env:
+            - name: VIGIL_IDENTITY_PROXY_TOKEN
+              valueFrom: { secretKeyRef: { name: {{ $trust }}, key: {{ .Values.managedExecution.identityProxyTokenSecretKey }} } }
+          volumeMounts: [{ name: envoy-template, mountPath: /templates, readOnly: true }, { name: envoy-rendered, mountPath: /rendered }]
+          securityContext: {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+        - name: wait-connector-grants
+          image: "{{ .Values.dbInit.image.repository }}:{{ .Values.dbInit.image.tag }}"
+          env:
+            - { name: PGHOST, value: {{ include "vigil.postgres.host" . | quote }} }
+            - { name: PGPORT, value: {{ include "vigil.postgres.port" . | quote }} }
+            - { name: PGDATABASE, value: {{ include "vigil.postgres.database" . | quote }} }
+            - { name: PGUSER, value: vigil_connector }
+            - name: PGPASSWORD
+              valueFrom: { secretKeyRef: { name: {{ include "vigil.postgres.passwordSecret" . }}, key: {{ include "vigil.postgres.passwordSecretKey" . }} } }
+          command: ["/bin/sh", "-ec"]
+          args: ["for i in $(seq 1 120); do psql -v ON_ERROR_STOP=1 -c 'SELECT 1 FROM findings LIMIT 0' >/dev/null 2>&1 && exit 0; sleep 2; done; echo 'connector grants unavailable' >&2; exit 1"]
+          securityContext: {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+      containers:
+        - name: connector
+          image: {{ printf "%s:%s" (required "managedExecution.connector.image.repository is required" .Values.managedExecution.connector.image.repository) (required "managedExecution.connector.image.tag is required" .Values.managedExecution.connector.image.tag) | quote }}
+          imagePullPolicy: {{ default .Values.global.imagePullPolicy .Values.managedExecution.connector.image.pullPolicy }}
+          command: ["uvicorn", "services.connector.app:app", "--host", "127.0.0.1", "--port", "8083"]
+          {{- with .Values.managedExecution.connector.credentialSecretName }}
+          envFrom: [{ secretRef: { name: {{ . }} } }]
+          {{- end }}
+          env:
+            - { name: HOME, value: /home/vigil }
+            - { name: VIGIL_EXECUTION_PROFILE, value: managed }
+            - { name: VIGIL_GATEWAY_SPIFFE_ID, value: {{ $securityId | quote }} }
+            - { name: VIGIL_CONNECTOR_BUILTIN_TOOLS, value: {{ .Values.managedExecution.connector.builtinTools | quote }} }
+            - { name: VIGIL_CONNECTOR_BINDINGS, value: {{ .Values.managedExecution.connector.bindingsJson | quote }} }
+            - { name: POSTGRES_HOST, value: {{ include "vigil.postgres.host" . | quote }} }
+            - { name: POSTGRES_PORT, value: {{ include "vigil.postgres.port" . | quote }} }
+            - { name: POSTGRES_DB, value: {{ include "vigil.postgres.database" . | quote }} }
+            - { name: POSTGRES_USER, value: vigil_connector }
+            - name: POSTGRES_PASSWORD
+              valueFrom: { secretKeyRef: { name: {{ include "vigil.postgres.passwordSecret" . }}, key: {{ include "vigil.postgres.passwordSecretKey" . }} } }
+            - name: VIGIL_IDENTITY_PROXY_TOKEN
+              valueFrom: { secretKeyRef: { name: {{ $trust }}, key: {{ .Values.managedExecution.identityProxyTokenSecretKey }} } }
+          resources: {{- toYaml .Values.managedExecution.connector.resources | nindent 12 }}
+          securityContext: {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          readinessProbe:
+            exec:
+              command: ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8083/healthz', timeout=2).read()"]
+            initialDelaySeconds: 5
+            periodSeconds: 10
+        - name: identity-proxy
+          image: {{ .Values.managedExecution.envoy.image | quote }}
+          args: ["-c", "/etc/envoy/envoy.yaml", "--log-level", "warn"]
+          ports: [{ name: mtls, containerPort: {{ .Values.managedExecution.connector.servicePort }} }]
+          resources: {{- toYaml .Values.managedExecution.envoy.resources | nindent 12 }}
+          securityContext: {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          volumeMounts: [{ name: envoy-rendered, mountPath: /etc/envoy, readOnly: true }, { name: spire-agent-socket, mountPath: /run/spire/sockets/agent.sock, readOnly: true }]
+      volumes:
+        - name: envoy-template
+          configMap: { name: {{ $root }}-managed-envoy, items: [{ key: connector.yaml.tmpl, path: connector.yaml.tmpl }] }
+        - { name: envoy-rendered, emptyDir: {} }
+        - name: spire-agent-socket
+          hostPath: { path: {{ .Values.managedExecution.spireAgentSocketHostPath | quote }}, type: Socket }
+      {{- with .Values.managedExecution.nodeSelector }}
+      nodeSelector: {{- toYaml . | nindent 8 }}
+      {{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $root }}-reasoner
+  namespace: {{ $ns }}
+  labels:
+    {{- include "vigil.componentLabels" (dict "context" . "component" "reasoner") | nindent 4 }}
+spec:
+  replicas: {{ .Values.managedExecution.reasoner.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "vigil.componentSelectorLabels" (dict "context" . "component" "reasoner") | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "vigil.componentSelectorLabels" (dict "context" . "component" "reasoner") | nindent 8 }}
+    spec:
+      serviceAccountName: {{ $root }}-reasoner
+      automountServiceAccountToken: false
+      securityContext: {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: reasoner
+          image: {{ printf "%s:%s" (required "managedExecution.reasoner.image.repository is required" .Values.managedExecution.reasoner.image.repository) (required "managedExecution.reasoner.image.tag is required" .Values.managedExecution.reasoner.image.tag) | quote }}
+          imagePullPolicy: {{ default .Values.global.imagePullPolicy .Values.managedExecution.reasoner.image.pullPolicy }}
+          command: ["uvicorn", "services.reasoner.app:app", "--host", "127.0.0.1", "--port", "8082"]
+          env:
+            - { name: HOME, value: /home/vigil }
+            - name: VIGIL_MANAGED_AUTHORITY_PUBLIC_KEY
+              valueFrom: { secretKeyRef: { name: {{ $trust }}, key: {{ .Values.managedExecution.authorityPublicKeySecretKey }} } }
+            - name: VIGIL_REASONER_INTERNAL_TOKEN
+              valueFrom: { secretKeyRef: { name: {{ $trust }}, key: {{ .Values.managedExecution.reasonerTokenSecretKey }} } }
+          resources: {{- toYaml .Values.managedExecution.reasoner.resources | nindent 12 }}
+          securityContext: {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          readinessProbe:
+            exec:
+              command: ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8082/healthz', timeout=2).read()"]
+            initialDelaySeconds: 5
+            periodSeconds: 10
+        - name: identity-proxy
+          image: {{ .Values.managedExecution.envoy.image | quote }}
+          args: ["-c", "/etc/envoy/envoy.yaml", "--log-level", "warn"]
+          ports: [{ name: mtls, containerPort: {{ .Values.managedExecution.reasoner.servicePort }} }]
+          resources: {{- toYaml .Values.managedExecution.envoy.resources | nindent 12 }}
+          securityContext: {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          volumeMounts: [{ name: envoy-config, mountPath: /etc/envoy, readOnly: true }, { name: spire-agent-socket, mountPath: /run/spire/sockets/agent.sock, readOnly: true }]
+      volumes:
+        - name: envoy-config
+          configMap: { name: {{ $root }}-managed-envoy, items: [{ key: reasoner.yaml, path: envoy.yaml }] }
+        - name: spire-agent-socket
+          hostPath: { path: {{ .Values.managedExecution.spireAgentSocketHostPath | quote }}, type: Socket }
+      {{- with .Values.managedExecution.nodeSelector }}
+      nodeSelector: {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

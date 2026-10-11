@@ -357,6 +357,8 @@ requests==2.34.2
     #   taxii2-client
 respx==0.23.1
     # via -r requirements.txt
+rfc8785==0.0.2
+    # via -r requirements.txt
 rpds-py==2026.6.3
     # via
     #   jsonschema

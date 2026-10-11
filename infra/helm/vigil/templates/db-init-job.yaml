@@ -6,12 +6,12 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "vigil.componentLabels" (dict "context" . "component" "db-init") | nindent 4 }}
+  {{- if .Release.IsUpgrade }}
   annotations:
-    # Run after secrets/configmap are in place but before the app deployments
-    # become Ready. Hook-weight negative = earlier execution.
-    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook: pre-upgrade
     helm.sh/hook-weight: "-5"
     helm.sh/hook-delete-policy: before-hook-creation
+  {{- end }}
 spec:
   backoffLimit: 3
   ttlSecondsAfterFinished: 600
@@ -22,6 +22,11 @@ spec:
     spec:
       restartPolicy: OnFailure
       serviceAccountName: {{ include "vigil.serviceAccountName" . }}
+      {{- if .Values.managedExecution.enabled }}
+      {{- with .Values.managedExecution.nodeSelector }}
+      nodeSelector: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- end }}
       {{- include "vigil.imagePullSecrets" . | nindent 6 }}
       securityContext:
         runAsNonRoot: true
@@ -140,6 +145,13 @@ spec:
               fi
               echo "setting vigil_app password"
               printf '%s\n' "ALTER ROLE vigil_app PASSWORD :'pw';" | psql -v ON_ERROR_STOP=1 --set=pw="$pw"
+
+              {{- if .Values.managedExecution.enabled }}
+              echo "setting managed service database passwords"
+              printf '%s\n' "ALTER ROLE vigil_agent PASSWORD :'pw';" | psql -v ON_ERROR_STOP=1 --set=pw="$pw"
+              printf '%s\n' "ALTER ROLE vigil_security PASSWORD :'pw';" | psql -v ON_ERROR_STOP=1 --set=pw="$pw"
+              printf '%s\n' "ALTER ROLE vigil_connector PASSWORD :'pw';" | psql -v ON_ERROR_STOP=1 --set=pw="$pw"
+              {{- end }}
 
               echo "Database initialization complete."
           volumeMounts:

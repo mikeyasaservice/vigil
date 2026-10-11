@@ -1,0 +1,10 @@
+{
+  "input": {
+    "prompt": "café 🔐",
+    "finding_ids": ["α", "A"],
+    "nested": {"z": 0, "a": true},
+    "integer": 9007199254740991
+  },
+  "canonical": "{\"finding_ids\":[\"α\",\"A\"],\"integer\":9007199254740991,\"nested\":{\"a\":true,\"z\":0},\"prompt\":\"café 🔐\"}",
+  "sha256": "34c9950cac93dfbe116571794e9db99c815ffe97627b583e18655785da11bb7e"
+}

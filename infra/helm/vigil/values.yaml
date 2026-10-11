@@ -203,6 +203,61 @@ agentWorker:
   affinity: {}
   extraEnv: []
 
+# Managed execution data-plane services. Enabling this profile requires a
+# cluster SPIRE installation with Envoy SDS enabled on the agent socket.
+managedExecution:
+  enabled: false
+  nodeSelector: {}
+  deploymentId: ""
+  authIssuer: ""
+  authAudience: ""
+  capabilities: "get_finding,case_records"
+  trustDomain: ""
+  spireAgentSocketHostPath: /run/spire/agent-sockets/spire-agent.sock
+  trustSecretName: ""
+  identityProxyTokenSecretKey: token
+  authorityPrivateKeySecretKey: authority-private-key
+  authorityPublicKeySecretKey: authority-public-key
+  reasonerTokenSecretKey: reasoner-token
+  envoy:
+    image: envoyproxy/envoy:v1.37.7
+    resources:
+      requests: { cpu: 50m, memory: 64Mi }
+      limits: { cpu: 250m, memory: 256Mi }
+  security:
+    replicaCount: 2
+    servicePort: 8443
+    resources:
+      requests: { cpu: 100m, memory: 256Mi }
+      limits: { cpu: 500m, memory: 512Mi }
+  connector:
+    replicaCount: 2
+    servicePort: 8444
+    image:
+      repository: ""
+      tag: ""
+      pullPolicy: ""
+    builtinTools: "get_finding,case_records"
+    bindingsJson: "{}"
+    credentialSecretName: ""
+    # Exact external connector destinations, expressed as network CIDRs. Empty
+    # keeps external egress denied; in-cluster synthetic sinks use peer labels.
+    allowedCIDRs: []
+    resources:
+      requests: { cpu: 100m, memory: 256Mi }
+      limits: { cpu: 500m, memory: 512Mi }
+  reasoner:
+    replicaCount: 2
+    servicePort: 8445
+    image:
+      repository: ""
+      tag: ""
+      pullPolicy: ""
+    modelProxyAllowedCIDRs: []
+    resources:
+      requests: { cpu: 250m, memory: 512Mi }
+      limits: { cpu: 1000m, memory: 1Gi }
+
 # -----------------------------------------------------------------------------
 # Agent serve — the same image as agentWorker, running the other entry point:
 # chat over SSE and the run projections a supervisor reads. Separate from the
@@ -271,6 +326,7 @@ postgresql:
     limits:
       cpu: 2000m
       memory: 4Gi
+  nodeSelector: {}
   # External Postgres (used when postgresql.enabled=false)
   external:
     host: ""
@@ -347,6 +403,7 @@ redis:
     limits:
       cpu: 500m
       memory: 768Mi
+  nodeSelector: {}
   external:
     # Full Redis URL (e.g. redis://:password@redis.example.com:6379/0).
     # If set, this wins over in-chart Redis.
@@ -433,6 +490,7 @@ dbInit:
     - 39_case_findings_finding_index.sql
     - 40_drop_custom_workflow_graph_layout.sql
     - 41_managed_execution.sql
+    - 42_managed_workload_identity.sql
   resources:
     requests:
       cpu: 50m

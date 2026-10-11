@@ -1,0 +1,82 @@
+{{- if and .Values.managedExecution.enabled .Values.dbInit.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "vigil.fullname" . }}-managed-db-reconcile
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "vigil.componentLabels" (dict "context" . "component" "managed-db-reconcile") | nindent 4 }}
+  {{- if .Release.IsUpgrade }}
+  annotations:
+    helm.sh/hook: pre-upgrade
+    helm.sh/hook-weight: "-4"
+    helm.sh/hook-delete-policy: before-hook-creation
+  {{- end }}
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata:
+      labels:
+        {{- include "vigil.componentLabels" (dict "context" . "component" "managed-db-reconcile") | nindent 8 }}
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: {{ include "vigil.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      {{- with .Values.managedExecution.nodeSelector }}
+      nodeSelector: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 70
+        runAsGroup: 70
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: reconcile
+          image: "{{ .Values.dbInit.image.repository }}:{{ .Values.dbInit.image.tag }}"
+          imagePullPolicy: {{ .Values.dbInit.image.pullPolicy | default "IfNotPresent" }}
+          env:
+            - { name: PGHOST, value: {{ include "vigil.postgres.host" . | quote }} }
+            - { name: PGPORT, value: {{ include "vigil.postgres.port" . | quote }} }
+            - { name: PGDATABASE, value: {{ include "vigil.postgres.database" . | quote }} }
+            - { name: PGUSER, value: {{ include "vigil.postgres.username" . | quote }} }
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "vigil.postgres.passwordSecret" . }}
+                  key: {{ include "vigil.postgres.passwordSecretKey" . }}
+          command: ["/bin/sh", "-ec"]
+          args:
+            - |
+              for i in $(seq 1 120); do
+                pg_isready -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$PGDATABASE" >/dev/null 2>&1 && break
+                [ "$i" = "120" ] && { echo "ERROR: PostgreSQL did not become ready" >&2; exit 1; }
+                sleep 2
+              done
+              tables="findings finding_mitre_predictions case_tasks case_escalations"
+              for i in $(seq 1 120); do
+                missing=""
+                for table in $tables; do
+                  present=$(psql -tA -v ON_ERROR_STOP=1 -c "SELECT to_regclass('public.$table') IS NOT NULL")
+                  [ "$present" = "t" ] || missing="$missing $table"
+                done
+                [ -z "$missing" ] && break
+                if [ "$i" = "120" ]; then
+                  echo "ERROR: managed connector tables were not created:$missing" >&2
+                  exit 1
+                fi
+                sleep 2
+              done
+              psql -v ON_ERROR_STOP=1 <<'SQL'
+              GRANT SELECT ON findings, finding_mitre_predictions, case_tasks, case_escalations TO vigil_connector;
+              REVOKE INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER
+                ON findings, finding_mitre_predictions, case_tasks, case_escalations
+                FROM vigil_connector;
+              SQL
+              echo "Managed connector database privileges reconciled."
+          resources: {{- toYaml .Values.dbInit.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+{{- end }}

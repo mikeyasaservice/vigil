@@ -9,7 +9,7 @@ import json
 import logging
 import os
 import sys
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 
 # Add the repo root to sys.path so `core.*` and `services.*` resolve whether
@@ -498,6 +498,15 @@ async def _startup(app: FastAPI):
 
     validate_managed_startup()
 
+    if os.getenv("VIGIL_EXECUTION_PROFILE", "standalone").lower() == "managed":
+        from core.agents.managed_outbox import managed_outbox_publisher
+
+        app.state.managed_outbox_stop = asyncio.Event()
+        app.state.managed_outbox_task = asyncio.create_task(
+            managed_outbox_publisher(stop=app.state.managed_outbox_stop),
+            name="managed-outbox-publisher",
+        )
+
     _build_services(app)
     _announce_mcp_surface()
 
@@ -673,6 +682,18 @@ async def _startup(app: FastAPI):
 
 async def _shutdown(app: FastAPI):
     """Clean up LLM gateway and MCP connections on shutdown."""
+    managed_outbox_stop = getattr(app.state, "managed_outbox_stop", None)
+    managed_outbox_task = getattr(app.state, "managed_outbox_task", None)
+    if managed_outbox_stop is not None:
+        managed_outbox_stop.set()
+    if managed_outbox_task is not None:
+        try:
+            await asyncio.wait_for(managed_outbox_task, timeout=5)
+        except asyncio.TimeoutError:
+            managed_outbox_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await managed_outbox_task
+
     logger.info("Shutting down LLM Gateway...")
     try:
         from core.llm.gateway.gateway import close_llm_gateway

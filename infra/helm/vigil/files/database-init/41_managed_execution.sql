@@ -124,5 +124,6 @@ ALTER ROLE vigil_agent NOSUPERUSER LOGIN;
 REVOKE ALL ON managed_deployments, managed_memberships, managed_admissions,
   managed_runs, managed_execution_claims, managed_approvals, managed_invocation_reservations,
   managed_authorization_audit, managed_outbox FROM vigil_agent;
-GRANT SELECT, INSERT ON agent_events, agent_run_leases TO vigil_agent;
-GRANT UPDATE (owner, claim_until) ON agent_run_leases TO vigil_agent;
+GRANT SELECT, INSERT ON agent_events TO vigil_agent;
+GRANT SELECT, INSERT, DELETE ON agent_run_leases TO vigil_agent;
+GRANT UPDATE (owner, claim_until, run_kind) ON agent_run_leases TO vigil_agent;

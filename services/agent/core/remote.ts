@@ -1,5 +1,5 @@
 import type { RegisteredTool, ToolPrincipal, ToolResult } from "../contracts/tool.js";
-import type { ToolDispatch } from "./seams.js";
+import type { InvocationContext, ToolDispatch } from "./seams.js";
 
 export interface RemoteOptions {
   url: string;
@@ -8,7 +8,7 @@ export interface RemoteOptions {
   principal?: ToolPrincipal;
   /** Managed profile requires an independent grant even for local tools. */
   managed?: boolean;
-  authorize?: (tool: RegisteredTool, args: Record<string, unknown>, signal?: AbortSignal) => Promise<ToolResult | void>;
+  authorize?: (tool: RegisteredTool, args: Record<string, unknown>, signal?: AbortSignal, context?: InvocationContext) => Promise<ToolResult | void>;
   fetch?: typeof globalThis.fetch;
 }
 
@@ -70,7 +70,7 @@ export function deadline(timeoutMs: number, signal?: AbortSignal): Deadline {
 export function remoteDispatch(options: RemoteOptions): ToolDispatch {
   const call = options.fetch ?? globalThis.fetch;
   return {
-    invoke: async (tool: RegisteredTool, args: Record<string, unknown>, signal?: AbortSignal): Promise<ToolResult> => {
+    invoke: async (tool: RegisteredTool, args: Record<string, unknown>, signal?: AbortSignal, context?: InvocationContext): Promise<ToolResult> => {
       // A tool the registry answers itself never leaves the process: every call routes
       // through this dispatch, so a local implementation was otherwise unreachable.
       if (options.managed) {
@@ -80,7 +80,7 @@ export function remoteDispatch(options: RemoteOptions): ToolDispatch {
         }
         if (options.authorize === undefined) return { ok: false, failure: { kind: "refused", detail: "managed authorization is unavailable" } };
         try {
-          const authorized = await options.authorize(tool, args, signal);
+          const authorized = await options.authorize(tool, args, signal, context);
           if (authorized === undefined) return { ok: false, failure: { kind: "refused", detail: "managed gateway returned no tool result" } };
           return authorized;
         } catch (error) {

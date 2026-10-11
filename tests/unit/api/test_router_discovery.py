@@ -241,7 +241,7 @@ def test_required_auth_rejects_a_reason():
 
 
 def test_every_non_required_router_has_a_reason():
-    """The live tree, not just the validator: all 9 deviations are justified.
+    """The live tree, not just the validator: all 10 deviations are justified.
 
     ``pricing`` is the fourth of the agent layer's internal endpoints, on the
     same terms as ``tools``, ``playbooks`` and ``run_bridge``: the shared secret,
@@ -254,8 +254,8 @@ def test_every_non_required_router_has_a_reason():
     deviations = [
         (name, meta) for name, _r, meta in _specs() if meta.auth is not Auth.REQUIRED
     ]
-    assert len(deviations) == 9, (
-        f"expected 9 non-REQUIRED routers, found {len(deviations)}: "
+    assert len(deviations) == 10, (
+        f"expected 10 non-REQUIRED routers, found {len(deviations)}: "
         f"{sorted(n for n, _ in deviations)}. A new one needs review."
     )
     for name, meta in deviations:

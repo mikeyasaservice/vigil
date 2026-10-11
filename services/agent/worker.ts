@@ -3,7 +3,7 @@ import { hostname } from "node:os";
 import { randomUUID } from "node:crypto";
 import pg from "pg";
 import { archFor } from "./arch/registry.js";
-import { httpAnswers, journalAnswers, noAnswers, type Answers } from "./core/answers.js";
+import { httpAnswers, journalAnswers, noAnswers, resolutionsOf, type Answers } from "./core/answers.js";
 import { httpAnnounce, noAnnounce, type Announce } from "./core/checkpoints.js";
 import { harnessFor, internalToken, type HarnessFactory } from "./harness.js";
 import { poolConfig, redisConfig } from "./core/db.js";
@@ -37,7 +37,8 @@ import type { HuntKinds } from "./workflows/hunt/ledger.js";
 import type { DirectiveQueue } from "./workflows/hunt/ports.js";
 import { InProcessDirectiveQueue } from "./workflows/hunt/directives.js";
 import { DirectiveRepository } from "./ledger/directives.js";
-import { ManagedAdmissionError, claimManagedExecution, claimManagedExecutionFromService, verifyManagedJob, type ManagedExecutionIdentity } from "./core/managed.js";
+import { ManagedAdmissionError, claimManagedExecution, claimManagedExecutionFromService, updateManagedExecutionStatus, verifyManagedJob, type ManagedExecutionIdentity } from "./core/managed.js";
+import { managedWorkflow } from "./managed/workflows.js";
 
 const log = logger("agent.worker");
 
@@ -85,7 +86,9 @@ export async function resolveSpec(job: StartJob, resolve: PlaybookResolver = def
   if (job.request.config !== "") {
     throw new SpecError(`${job.request.playbook} resolves its own config, so ${job.request.config} has nothing to say`);
   }
-  const layers = await resolve(job.request.playbook);
+  const layers = process.env["VIGIL_EXECUTION_PROFILE"] === "managed"
+    ? await managedWorkflow(job.request.playbook, String(job.managed?.admission.workflow_digest ?? ""))
+    : await resolve(job.request.playbook);
   return tighten(
     assembleSpec({
       arch: loadArch(arch, entry.actions),
@@ -105,7 +108,23 @@ function mirrorFor(): Mirror {
 
 // The same endpoint the compose mirror answers from, read-only. Off unless a
 // deployment says where, so a run nobody can answer parks rather than proceeds.
-function answersFor(): Answers {
+function answersFor(identity?: ManagedExecutionIdentity): Answers {
+  if (identity !== undefined) {
+    return async () => {
+      const base = (process.env["VIGIL_MANAGED_DECISIONS_URL"] ?? "http://127.0.0.1:15001/v1/decisions").replace(/\/$/, "");
+      const response = await fetch(base, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          execution_id: identity.execution_id,
+          claim_token: identity.jti,
+          attestation: identity.attestation,
+        }),
+      });
+      if (!response.ok) throw new ManagedAdmissionError(`managed decisions read denied (${response.status})`);
+      return resolutionsOf(await response.json());
+    };
+  }
   const url = process.env["VIGIL_RUNS_URL"];
   return url === undefined || url === "" ? noAnswers : httpAnswers({ url, token: internalToken() });
 }
@@ -183,6 +202,7 @@ async function drive(
   signal: AbortSignal,
   directives: DirectiveQueue,
   managedIdentity?: ManagedExecutionIdentity,
+  managedContext?: NonNullable<RunPayload["managed_context"]>,
 ): Promise<string | null> {
   const { run_kind: kind, run_id, enqueued_by: started_by } = job;
   // Folded off the ledger, so a resumed run continues its allowance instead of
@@ -213,7 +233,7 @@ async function drive(
   }
   if (kind === "hunt" || kind === "investigate") {
     const harness = build(kind, spec, as<LeadKinds>(state), undefined, seed, undefined, managedIdentity);
-    await runLead(harness, { run_id, run_kind: kind, spec, actions: entry.actions, halts: entry.halts, started_by, answers: answersFor(), announce: announceFor(), signal });
+    await runLead(harness, { run_id, run_kind: kind, spec, actions: entry.actions, halts: entry.halts, started_by, answers: answersFor(), announce: announceFor(), signal, ...(managedContext === undefined ? {} : { managed_context: managedContext }) });
     return null;
   }
   throw new SpecError(`no workflow is wired for run_kind ${kind}`);
@@ -234,6 +254,7 @@ export async function advance(
   build: HarnessFactory = harnessFor,
   directives: DirectiveQueue = new InProcessDirectiveQueue(),
   managedIdentity?: ManagedExecutionIdentity,
+  claimManaged?: () => Promise<ManagedExecutionIdentity | undefined>,
 ): Promise<void> {
   if ((await state.terminal(job.run_id)) !== null) {
     await leases.finish(job.run_id);
@@ -242,6 +263,13 @@ export async function advance(
 
   const owner = workerName();
   if (!(await leases.claim(job.run_id, job.run_kind, owner, LEASE_TTL_MS))) return;
+
+  // The security claim fences its predecessor, so it must be issued only after
+  // this worker wins the execution lease. A duplicate queue delivery that loses
+  // the lease must not revoke the worker already doing the work.
+  if (managedIdentity === undefined && claimManaged !== undefined) {
+    managedIdentity = await claimManaged();
+  }
 
   const halt = new AbortController();
   const renewing = setInterval(() => {
@@ -262,12 +290,15 @@ export async function advance(
 
     const spec = latest === null ? await resolveSpec(job as StartJob) : await specOf(state, job.run_id);
     if (spec === null) throw new Error(`cannot advance ${job.run_id}: its ledger holds no run event`);
+    const managedContext = managedIdentity === undefined
+      ? undefined
+      : await managedContextFor(state, job, managedIdentity, latest);
 
     // Before the park check, not after it: abandoning is irreversible, and a run
     // whose answer is sitting at the endpoint unjournaled has been answered. The
     // workflow journals again on every iteration; this is idempotent against what
     // the ledger already holds, so the second call appends nothing.
-    const answered = await journalAnswers(state, job.run_id, job.run_kind, answersFor());
+    const answered = await journalAnswers(state, job.run_id, job.run_kind, answersFor(managedIdentity));
 
     if (await abandonIfParkedOut(state, leases, job, spec)) return;
     if (await abandonIfStalled(state, leases, job)) return;
@@ -276,7 +307,7 @@ export async function advance(
     // iteration can take minutes, and onCost only clears the row once it ends.
     // Compose reports its own state through its phases.
     if (answered > 0 && job.run_kind !== "compose") await tell(job.run_id, { status: "running", reason: "", cost_usd: await spentOn(state, job.run_id) });
-    const parked = await drive(state, job, spec, build, halt.signal, directives, managedIdentity);
+    const parked = await drive(state, job, spec, build, halt.signal, directives, managedIdentity, managedContext);
     await settle(state, leases, job, spec, owner, parked);
   } catch (error) {
     await abandon(job, error);
@@ -285,6 +316,29 @@ export async function advance(
   } finally {
     clearInterval(renewing);
   }
+}
+
+async function managedContextFor(
+  state: State,
+  job: RunJob,
+  identity: ManagedExecutionIdentity,
+  latest: number | null,
+): Promise<NonNullable<RunPayload["managed_context"]>> {
+  if (latest === null) {
+    if (job.reason !== "start") throw new ManagedAdmissionError("managed resume has no trusted run context");
+    const findingIds = job.request.finding_ids;
+    if (!Array.isArray(findingIds) || findingIds.length === 0 || findingIds.some((id) => typeof id !== "string" || id === "")) {
+      throw new ManagedAdmissionError("managed investigation requires admitted finding ids");
+    }
+    return { execution_id: identity.execution_id, finding_ids: [...new Set(findingIds)] };
+  }
+
+  const opened = (await state.read(job.run_id)).find((event) => event.kind === "run");
+  const context = (opened?.payload as RunPayload | undefined)?.managed_context;
+  if (context === undefined) throw new ManagedAdmissionError("managed run ledger has no admitted investigation context");
+  if (context.execution_id !== identity.execution_id) throw new ManagedAdmissionError("managed execution does not match the run ledger");
+  if (context.finding_ids.length === 0) throw new ManagedAdmissionError("managed run ledger has no admitted findings");
+  return context;
 }
 
 // A run that failed before it opened a ledger is not a run: no terminal can be
@@ -473,6 +527,27 @@ async function waitingOnSomeone(state: State, runId: string): Promise<boolean> {
   return parkedFor(await state.read(runId)) !== null;
 }
 
+function pendingManagedApproval(
+  events: readonly AgentEvent<Record<never, never>>[],
+): { checkpoint_id: string; tool: string; args: string } | undefined {
+  const answered = new Set(
+    events.filter((event) => event.kind === "resolution")
+      .map((event) => (event.payload as ResolutionPayload).checkpoint_id),
+  );
+  const open = [...events].reverse().find((event) => {
+    if (event.kind !== "checkpoint") return false;
+    return !answered.has((event.payload as CheckpointPayload).checkpoint_id);
+  });
+  if (open === undefined) return undefined;
+  const payload = open.payload as CheckpointPayload;
+  const tool = payload.context?.["tool"];
+  const args = payload.context?.["args"];
+  if (payload.checkpoint_class !== "tool_approval" || typeof tool !== "string" || typeof args !== "string") {
+    return undefined;
+  }
+  return { checkpoint_id: payload.checkpoint_id, tool, args };
+}
+
 // How long the oldest unanswered checkpoint has been waiting, or null when none
 // is. Read off the ledger's own timestamps, which is the one thing in this ticket
 // that folds ts -- and the reason only the store may stamp it.
@@ -573,17 +648,65 @@ export async function sweepOnce(leases: Leases, queue: Enqueue, limit = 50): Pro
 // Only here, not inside advance(): what a failure means to the queue is the queue's
 // business, and advance() is driven without one by the tests and by run-once.ts.
 // advance() still throws the original error; this is the only place that wraps it.
-export async function handle(state: State, leases: Leases, job: RunJob, directives: DirectiveQueue, build: HarnessFactory = harnessFor): Promise<void> {
+export async function handle(
+  state: State,
+  leases: Leases,
+  job: RunJob,
+  directives: DirectiveQueue,
+  build: HarnessFactory = harnessFor,
+  finalAttempt = true,
+): Promise<void> {
+  let managedIdentity: ManagedExecutionIdentity | null = null;
   try {
     // A managed job is admitted before any file, playbook, or ledger access.
     // Standalone v1 jobs remain on their frozen path until the managed profile is enabled.
     verifyManagedJob(job);
-    const managedIdentity = process.env["VIGIL_EXECUTION_PROFILE"] === "managed"
-      ? await claimManagedExecutionFromService(job)
+    managedIdentity = process.env["VIGIL_EXECUTION_PROFILE"] === "managed"
+      ? null
       : claimManagedExecution(job);
-    await advance(state, leases, job, build, directives, managedIdentity ?? undefined);
+    await advance(
+      state,
+      leases,
+      job,
+      build,
+      directives,
+      managedIdentity ?? undefined,
+      process.env["VIGIL_EXECUTION_PROFILE"] === "managed"
+        ? async () => {
+            managedIdentity = await claimManagedExecutionFromService(job);
+            return managedIdentity ?? undefined;
+          }
+        : undefined,
+    );
+    if (managedIdentity !== null) {
+      const events = await state.read(job.run_id);
+      const terminal = [...events].reverse().find((event) => event.kind === "terminal");
+      const waiting = await waitingOnSomeone(state, job.run_id);
+      const status = terminal === undefined
+        ? (waiting ? "waiting_approval" : "running")
+        : ((terminal.payload as { outcome?: string }).outcome === "completed" ? "succeeded" : "failed");
+      const pending = status === "waiting_approval" ? pendingManagedApproval(events) : undefined;
+      if (status === "waiting_approval" && pending === undefined) {
+        throw new ManagedAdmissionError("managed waiting state has no bound tool approval");
+      }
+      await updateManagedExecutionStatus(managedIdentity, status, pending);
+    }
   } catch (error) {
-    if (error instanceof SpecError || error instanceof GatewayExhausted || error instanceof ManagedAdmissionError) {
+    const unrecoverable = error instanceof SpecError || error instanceof GatewayExhausted || error instanceof ManagedAdmissionError;
+    if (managedIdentity !== null) {
+      try {
+        await updateManagedExecutionStatus(managedIdentity, finalAttempt || unrecoverable ? "failed" : "retrying");
+      } catch (statusError) {
+        // Cancellation/revocation deliberately fences this update. Preserve the
+        // execution error while recording enough to distinguish a stale claim
+        // from an unavailable status authority.
+        log.warn("managed failure status update denied", {
+          run_id: job.run_id,
+          ...errorFields(statusError),
+        });
+      }
+    }
+    if (unrecoverable) {
       throw Object.assign(new UnrecoverableError(error.message), { cause: error });
     }
     throw error;
@@ -617,6 +740,14 @@ export function runConcurrency(): number {
   return Number.isInteger(asked) && asked > 0 ? asked : DEFAULT_RUN_CONCURRENCY;
 }
 
+export function watchdogEnabled(profile = process.env["VIGIL_EXECUTION_PROFILE"]): boolean {
+  return profile !== "managed";
+}
+
+export function isFinalAttempt(attemptsMade: number, configuredAttempts: number | undefined): boolean {
+  return attemptsMade + 1 >= (configuredAttempts ?? 1);
+}
+
 export interface Running {
   worker: Worker<RunJob>;
   ledger: LedgerRepository;
@@ -644,7 +775,10 @@ export function startWorker(build: HarnessFactory = harnessFor): Running {
   // every other run waited it out. A run is almost entirely waiting on a model, so
   // the ceiling is the provider's rate limit rather than this process's CPU -- the
   // limiter already holds that line, and the lease keeps two workers off one run.
-  const worker = new Worker<RunJob>(RUN_QUEUE, (job) => handle(ledger, leases, job.data, directives, build), {
+  const worker = new Worker<RunJob>(RUN_QUEUE, (job) => handle(
+    ledger, leases, job.data, directives, build,
+    isFinalAttempt(job.attemptsMade, job.opts.attempts),
+  ), {
     connection,
     concurrency: runConcurrency(),
     lockDuration: LEASE_TTL_MS * 10,
@@ -662,8 +796,10 @@ export function startWorker(build: HarnessFactory = harnessFor): Running {
   // Several replicas all sweep. That is harmless rather than merely tolerable --
   // the claim is one conditional UPDATE, so only the sweeper that wins a row
   // enqueues it.
-  const producer = new Queue<RunJob>(RUN_QUEUE, { connection });
-  const sweeping = setInterval(() => {
+  // Managed recovery is a signed, durable API operation. The standalone
+  // watchdog cannot mint that authority, so it is not started in this profile.
+  const producer = watchdogEnabled() ? new Queue<RunJob>(RUN_QUEUE, { connection }) : undefined;
+  const sweeping = producer === undefined ? undefined : setInterval(() => {
     void sweepOnce(leases, producer).catch((error: unknown) => {
       // A sweep that could not read the table tries again next tick. Throwing here
       // would take the process down with every run on it. Said out loud because a
@@ -673,9 +809,9 @@ export function startWorker(build: HarnessFactory = harnessFor): Running {
   }, SWEEP_EVERY_MS);
 
   return { worker, ledger, leases, close: async () => {
-    clearInterval(sweeping);
+    if (sweeping !== undefined) clearInterval(sweeping);
     await worker.close();
-    await producer.close();
+    if (producer !== undefined) await producer.close();
     await pool.end();
   } };
 }

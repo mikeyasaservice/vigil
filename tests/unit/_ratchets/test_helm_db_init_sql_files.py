@@ -22,6 +22,7 @@ pytestmark = pytest.mark.unit
 REPO = Path(__file__).resolve().parents[3]
 INIT_SQL = REPO / "infra" / "database" / "init"
 HELM_VALUES = REPO / "infra" / "helm" / "vigil" / "values.yaml"
+HELM_BUNDLE = REPO / "infra" / "helm" / "vigil" / "files" / "database-init"
 
 
 def _sql_files() -> list[str]:
@@ -47,6 +48,34 @@ def test_every_sql_files_entry_exists() -> None:
     present = set(_init_sql())
     unknown = [name for name in _sql_files() if name not in present]
     assert not unknown, f"dbInit.sqlFiles names files that do not exist: {unknown}"
+
+
+def test_every_listed_migration_is_bundled_without_drift() -> None:
+    missing = [name for name in _sql_files() if not (HELM_BUNDLE / name).is_file()]
+    assert not missing, f"Helm's db-init ConfigMap cannot bundle {missing}"
+    changed = [
+        name
+        for name in _sql_files()
+        if (INIT_SQL / name).read_bytes() != (HELM_BUNDLE / name).read_bytes()
+    ]
+    assert not changed, f"Helm's bundled migrations differ from source: {changed}"
+
+
+def test_managed_security_schema_is_in_the_chart_bundle() -> None:
+    rendered = "\n".join(
+        (HELM_BUNDLE / name).read_text(encoding="utf-8")
+        for name in ("41_managed_execution.sql", "42_managed_workload_identity.sql")
+    )
+    for required in (
+        "managed_admissions",
+        "managed_execution_claims",
+        "managed_invocation_reservations",
+        "managed_authorization_audit",
+        "managed_execution_budgets",
+        "managed_program_registry",
+        "managed_program_registry_guard_mutation",
+    ):
+        assert required in rendered, f"managed Helm migration omitted {required}"
 
 
 def test_sql_files_are_in_the_order_compose_applies_them() -> None:

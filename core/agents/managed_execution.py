@@ -13,9 +13,11 @@ import hashlib
 import json
 import secrets
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Iterable, Mapping, Optional
+
+import rfc8785
 
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import (
@@ -24,7 +26,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import (
 )
 
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 MAX_GRANT_TTL = timedelta(seconds=60)
 
 
@@ -41,11 +43,25 @@ def _now() -> datetime:
 
 
 def _canonical(value: Mapping[str, Any]) -> bytes:
-    return json.dumps(value, sort_keys=True, separators=(",", ":"), default=str).encode()
+    """Canonical bytes shared with the TypeScript managed verifier.
+
+    Signed managed values are already JSON-native. Converting unknown objects
+    with ``default=str`` would silently sign a different type, so JCS rejects
+    them instead and gives both runtimes the same UTF-8 and number encoding.
+    """
+    try:
+        return rfc8785.dumps(value)
+    except (rfc8785.CanonicalizationError, rfc8785.IntegerDomainError) as exc:
+        raise ManagedSecurityError("managed JSON is outside the canonical domain") from exc
 
 
 def _digest(value: Mapping[str, Any]) -> str:
     return hashlib.sha256(_canonical(value)).hexdigest()
+
+
+def managed_digest(value: Mapping[str, Any]) -> str:
+    """Public RFC 8785 digest for fields shared across managed runtimes."""
+    return _digest(value)
 
 
 @dataclass(frozen=True)
@@ -127,7 +143,8 @@ class QueueEnvelope:
         }
 
     def as_dict(self) -> Dict[str, Any]:
-        return {**self.signed_payload, "signature": self.signature}
+        payload = dict(self.signed_payload)
+        return {**payload, "signature": self.signature}
 
     @classmethod
     def from_dict(cls, value: Mapping[str, Any]) -> "QueueEnvelope":
@@ -201,6 +218,35 @@ class ToolGrant:
     expires_at: datetime
     workload_key_id: str
     claim_jti: str
+    max_rows: int = 100
+    timeout_ms: int = 30_000
+    signature: str = ""
+
+    @property
+    def signed_payload(self) -> Dict[str, Any]:
+        return {
+            "schema_version": SCHEMA_VERSION,
+            "aud": "vigil-managed-tool-grant",
+            "grant_id": self.grant_id,
+            "execution_id": self.execution_id,
+            "tenant_id": self.tenant_id,
+            "deployment_id": self.deployment_id,
+            "action": self.action,
+            "resource": self.resource,
+            "argument_digest": self.argument_digest,
+            "approval_digest": self.approval_digest,
+            "policy_version": self.policy_version,
+            "revocation_epoch": self.revocation_epoch,
+            "issued_at": self.issued_at.isoformat(),
+            "expires_at": self.expires_at.isoformat(),
+            "workload_key_id": self.workload_key_id,
+            "claim_jti": self.claim_jti,
+            "max_rows": self.max_rows,
+            "timeout_ms": self.timeout_ms,
+        }
+
+    def as_dict(self) -> Dict[str, Any]:
+        return {**self.signed_payload, "signature": self.signature}
 
 
 @dataclass(frozen=True)
@@ -322,6 +368,11 @@ class ManagedAuthority:
                 "request_digest": admission.request_digest,
                 "run_id": str((references or {}).get("run_id", admission_id)),
                 "run_kind": str((references or {}).get("run_kind", "investigate")),
+                "workflow_id": workflow_id,
+                "workflow_digest": workflow_digest,
+                "program_id": program_id,
+                "program_digest": program_digest,
+                "finding_reference_digest": _digest({"finding_ids": request.get("finding_ids", [])}),
                 **({str(k): str(v) for k, v in (references or {}).items()}),
             },
             signature="",
@@ -334,7 +385,9 @@ class ManagedAuthority:
             signature=self.signer.sign(envelope.signed_payload),
         )
 
-    def verify_envelope(self, envelope: QueueEnvelope, *, deployment_id: str) -> Admission:
+    def verify_envelope(
+        self, envelope: QueueEnvelope, *, deployment_id: str, allow_expired: bool = False
+    ) -> Admission:
         (self.verifier or self.signer.verifier()).verify(envelope.signed_payload, envelope.signature)
         admission = self.admissions.get(envelope.admission.admission_id)
         # The signed admission is intentionally self-contained so a queue
@@ -352,9 +405,24 @@ class ManagedAuthority:
             raise ManagedSecurityError("queue run binding is missing")
         if not envelope.references.get("run_kind"):
             raise ManagedSecurityError("queue run kind binding is missing")
+        if envelope.signed_payload["schema_version"] >= 3:
+            required = (
+                "workflow_id", "workflow_digest", "program_id", "program_digest",
+                "finding_reference_digest",
+            )
+            if any(not envelope.references.get(key) for key in required):
+                raise ManagedSecurityError("queue exact-work binding is incomplete")
+            if envelope.references["workflow_id"] != admission.workflow_id:
+                raise ManagedSecurityError("queue workflow binding is invalid")
+            if envelope.references["workflow_digest"] != admission.workflow_digest:
+                raise ManagedSecurityError("queue workflow digest binding is invalid")
+            if envelope.references["program_id"] != admission.program_id:
+                raise ManagedSecurityError("queue program binding is invalid")
+            if envelope.references["program_digest"] != admission.program_digest:
+                raise ManagedSecurityError("queue program digest binding is invalid")
         if admission.context.deployment_id != deployment_id:
             raise ManagedSecurityError("queue target is not the admission deployment")
-        if admission.expires_at <= _now():
+        if not allow_expired and admission.expires_at <= _now():
             raise ManagedSecurityError("admission has expired")
         if admission.revocation_epoch < self.revoked_epochs.get(admission.context.tenant_id, 0):
             raise ManagedSecurityError("admission was revoked")
@@ -364,9 +432,16 @@ class ManagedAuthority:
         """Issue a fresh queue signature without changing the admitted work."""
         if reason not in {"start", "resume"}:
             raise ManagedSecurityError("unsupported managed queue reason")
-        self.verify_envelope(envelope, deployment_id=envelope.admission.context.deployment_id)
+        admission = self.verify_envelope(
+            envelope,
+            deployment_id=envelope.admission.context.deployment_id,
+            allow_expired=reason == "resume",
+        )
+        if reason == "resume":
+            now = _now()
+            admission = replace(admission, issued_at=now, expires_at=now + timedelta(minutes=5))
         renewed = QueueEnvelope(
-            admission=envelope.admission,
+            admission=admission,
             execution_id=envelope.execution_id,
             reason=reason,
             references=envelope.references,
@@ -411,7 +486,10 @@ class ManagedAuthority:
             policy_version=admission.context.policy_version,
             revocation_epoch=admission.revocation_epoch,
             issued_at=now,
-            expires_at=min(admission.expires_at, now + timedelta(minutes=15)),
+            # Admission expiry limits when queued work may first claim. Once the
+            # durable claim exists, every dispatch still rechecks revocation,
+            # membership, deployment and program state in PostgreSQL.
+            expires_at=now + timedelta(hours=1),
             jti=secrets.token_hex(16),
         )
         self.executions[identity.execution_id] = identity
@@ -476,6 +554,8 @@ class ManagedAuthority:
         workload_key_id: str,
         approval_digest: Optional[str] = None,
         ttl: timedelta = MAX_GRANT_TTL,
+        max_rows: int = 100,
+        timeout_ms: int = 30_000,
     ) -> ToolGrant:
         self._check_execution(identity)
         if action not in identity.capabilities:
@@ -484,13 +564,15 @@ class ManagedAuthority:
             raise ManagedSecurityError("grant workload binding does not match execution")
         if ttl <= timedelta(0) or ttl > MAX_GRANT_TTL:
             raise ManagedSecurityError("tool grant lifetime exceeds the 60 second maximum")
+        if max_rows <= 0 or timeout_ms <= 0:
+            raise ManagedSecurityError("tool grant bounds must be positive")
         now = _now()
         argument_digest = _digest(arguments)
         if approval_digest is not None:
             approval = self.approvals.get(approval_digest)
             if approval != (identity.execution_id, action, resource, argument_digest):
                 raise ManagedSecurityError("approval binding is invalid")
-        grant = ToolGrant(
+        unsigned = ToolGrant(
             grant_id=grant_id,
             execution_id=identity.execution_id,
             tenant_id=identity.tenant_id,
@@ -505,15 +587,36 @@ class ManagedAuthority:
             expires_at=min(identity.expires_at, now + ttl),
             workload_key_id=workload_key_id,
             claim_jti=identity.jti,
+            max_rows=max_rows,
+            timeout_ms=timeout_ms,
         )
+        grant = self.sign_tool_grant(unsigned)
         self.grants[grant_id] = grant
         return grant
+
+    def sign_tool_grant(self, grant: ToolGrant) -> ToolGrant:
+        if grant.signature:
+            raise ManagedSecurityError("tool grant is already signed")
+        return replace(grant, signature=self.signer.sign(grant.signed_payload))
+
+    def verify_tool_grant(self, grant: ToolGrant) -> None:
+        (self.verifier or self.signer.verifier()).verify(grant.signed_payload, grant.signature)
+        now = _now()
+        if grant.issued_at > now + timedelta(seconds=5):
+            raise ManagedSecurityError("tool grant was issued in the future")
+        if grant.expires_at <= now:
+            raise ManagedSecurityError("tool grant has expired")
+        if grant.expires_at - grant.issued_at > MAX_GRANT_TTL:
+            raise ManagedSecurityError("tool grant lifetime exceeds the 60 second maximum")
+        if grant.max_rows <= 0 or grant.timeout_ms <= 0:
+            raise ManagedSecurityError("tool grant bounds are invalid")
 
     def authorize(self, invocation: Invocation) -> None:
         identity = self.executions.get(invocation.execution_id)
         if identity is None:
             raise ManagedSecurityError("execution is unknown")
         self._check_execution(identity)
+        self.verify_tool_grant(invocation.grant)
         grant = self.grants.get(invocation.grant.grant_id)
         if grant is None or grant != invocation.grant:
             raise ManagedSecurityError("grant is unknown or has been altered")

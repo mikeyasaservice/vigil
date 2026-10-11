@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Vigil Managed Agent Runs
-  version: 2.0.0
+  version: 2.1.0
   description: Managed admission surface. Tenant identity is resolved server-side.
 servers:
   - url: /
@@ -103,6 +103,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/ExecutionIdentity' }
         '403': { description: Claim denied }
+        '503': { description: Workload identity or durable security state unavailable }
   /v1/authorize:
     post:
       operationId: authorizeManagedTool
@@ -114,8 +115,73 @@ paths:
             schema: { $ref: '#/components/schemas/ManagedAuthorizeRequest' }
       responses:
         '200':
-          description: Existing ToolResult shape
+          description: Authorized connector result in the existing ToolResult shape
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ToolResult' }
         '403': { description: Capability denied }
+        '503': { description: 'Gateway, authorization state, or connector unavailable' }
+  /v1/grants:
+    post:
+      operationId: issueManagedToolGrant
+      security: [{ mtls: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ManagedGrantRequest' }
+      responses:
+        '200':
+          description: Signed one-call grant bound to the current worker claim
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ToolGrant' }
+        '403': { description: Grant denied }
+        '503': { description: Grant authority unavailable }
+  /v1/status:
+    post:
+      operationId: updateManagedExecutionStatus
+      security: [{ mtls: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ManagedStatusRequest' }
+      responses:
+        '200':
+          description: Durable execution status updated for the current claim
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [execution_id, status]
+                properties:
+                  execution_id: { type: string }
+                  status: { type: string, enum: [running, retrying, waiting_approval, succeeded, failed] }
+        '403': { description: Claim or attestation denied }
+        '503': { description: Durable status authority unavailable }
+  /v1/decisions:
+    post:
+      operationId: listManagedExecutionDecisions
+      security: [{ mtls: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ManagedDecisionsRequest' }
+      responses:
+        '200':
+          description: Approved checkpoint decisions for the current claim
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [decisions]
+                properties:
+                  decisions:
+                    type: array
+                    items: { $ref: '#/components/schemas/ManagedDecision' }
+        '403': { description: Claim or attestation denied }
 components:
   securitySchemes:
     bearerAuth: { type: http, scheme: bearer }
@@ -148,7 +214,7 @@ components:
         execution_id: { type: string }
         tenant_id: { type: string }
         deployment_id: { type: string }
-        status: { type: string, enum: [queued, running, cancelled, succeeded, failed] }
+        status: { type: string, enum: [queued, running, waiting_approval, approved, cancelled, succeeded, failed] }
         workflow_id: { type: string, const: triage-v1 }
     ManagedRunListResponse:
       type: object
@@ -159,41 +225,144 @@ components:
     ManagedApprovalRequest:
       type: object
       additionalProperties: false
-      required: [action, resource, argument_digest]
+      required: [checkpoint_id, action, resource, argument_digest]
       properties:
+        checkpoint_id: { type: string, minLength: 1, maxLength: 200 }
         action: { type: string, minLength: 1, maxLength: 200 }
         resource: { type: string, minLength: 1, maxLength: 500 }
         argument_digest: { type: string, minLength: 1, maxLength: 128 }
     ManagedClaimRequest:
       type: object
-      required: [envelope, worker_key_id]
+      additionalProperties: false
+      required: [envelope]
       properties:
         envelope: { type: object }
-        worker_key_id: { type: string, minLength: 1 }
         capabilities: { type: array, items: { type: string } }
-    ManagedAuthorizeRequest:
+    ManagedGrantRequest:
       type: object
-      required: [execution_id, tenant_id, deployment_id, worker_key_id, claim_token, attestation, tool]
+      additionalProperties: false
+      required: [execution_id, tenant_id, deployment_id, claim_token, attestation, tool]
       properties:
         execution_id: { type: string }
         tenant_id: { type: string }
         deployment_id: { type: string }
-        worker_key_id: { type: string }
+        worker_key_id: { type: string, deprecated: true, description: Compatibility echo; never authenticates the caller. }
         claim_token: { type: string }
         attestation: { type: string }
         tool: { type: string }
         args: { type: object }
-        grant: { type: object }
         max_rows: { type: integer, minimum: 1 }
         timeout_ms: { type: integer, minimum: 1 }
-    ExecutionIdentity:
+    ManagedAuthorizeRequest:
       type: object
-      required: [execution_id, tenant_id, deployment_id, worker_key_id, program_digest, jti, attestation]
+      additionalProperties: false
+      required: [execution_id, tenant_id, deployment_id, claim_token, attestation, tool, grant]
       properties:
         execution_id: { type: string }
         tenant_id: { type: string }
         deployment_id: { type: string }
-        worker_key_id: { type: string }
+        worker_key_id: { type: string, deprecated: true, description: Compatibility echo; never authenticates the caller. }
+        claim_token: { type: string }
+        attestation: { type: string }
+        tool: { type: string }
+        args: { type: object }
+        grant: { $ref: '#/components/schemas/ToolGrant' }
+        max_rows: { type: integer, minimum: 1 }
+        timeout_ms: { type: integer, minimum: 1 }
+    ManagedStatusRequest:
+      type: object
+      additionalProperties: false
+      required: [execution_id, claim_token, attestation, status]
+      properties:
+        execution_id: { type: string }
+        claim_token: { type: string, minLength: 1 }
+        attestation: { type: string, minLength: 1 }
+        status: { type: string, enum: [running, retrying, waiting_approval, succeeded, failed] }
+        pending: { $ref: '#/components/schemas/ManagedPendingApproval' }
+    ManagedPendingApproval:
+      type: object
+      additionalProperties: false
+      required: [checkpoint_id, tool, args]
+      properties:
+        checkpoint_id: { type: string, minLength: 1, maxLength: 200 }
+        tool: { type: string, minLength: 1, maxLength: 200 }
+        args: { type: string, minLength: 2, maxLength: 100000 }
+    ManagedDecisionsRequest:
+      type: object
+      additionalProperties: false
+      required: [execution_id, claim_token, attestation]
+      properties:
+        execution_id: { type: string, minLength: 1 }
+        claim_token: { type: string, minLength: 1 }
+        attestation: { type: string, minLength: 1 }
+    ManagedDecision:
+      type: object
+      additionalProperties: false
+      required: [checkpoint_id, actor, answer, text, resolved_at]
+      properties:
+        checkpoint_id: { type: string }
+        actor: { type: string }
+        answer: { type: string, const: approve }
+        text: { type: string }
+        resolved_at: { type: string, format: date-time }
+    ExecutionIdentity:
+      type: object
+      required: [execution_id, tenant_id, deployment_id, workload_spiffe_id, workflow_id, workflow_digest, program_id, program_digest, capabilities, policy_version, revocation_epoch, issued_at, expires_at, jti, attestation]
+      properties:
+        execution_id: { type: string }
+        tenant_id: { type: string }
+        deployment_id: { type: string }
+        workload_spiffe_id: { type: string, pattern: '^spiffe://' }
+        worker_key_id: { type: string, deprecated: true }
+        workflow_id: { type: string }
+        workflow_digest: { type: string }
+        program_id: { type: string }
         program_digest: { type: string }
+        capabilities: { type: array, items: { type: string } }
+        policy_version: { type: string }
+        revocation_epoch: { type: integer, minimum: 0 }
+        issued_at: { type: string, format: date-time }
+        expires_at: { type: string, format: date-time }
         jti: { type: string }
         attestation: { type: string }
+    ToolGrant:
+      type: object
+      additionalProperties: false
+      required: [grant_id, execution_id, tenant_id, deployment_id, action, resource, argument_digest, policy_version, revocation_epoch, issued_at, expires_at, workload_key_id, claim_jti, max_rows, timeout_ms, signature]
+      properties:
+        grant_id: { type: string }
+        execution_id: { type: string }
+        tenant_id: { type: string }
+        deployment_id: { type: string }
+        action: { type: string }
+        resource: { type: string }
+        argument_digest: { type: string }
+        approval_digest: { type: [string, 'null'] }
+        policy_version: { type: string }
+        revocation_epoch: { type: integer, minimum: 0 }
+        issued_at: { type: string, format: date-time }
+        expires_at: { type: string, format: date-time }
+        workload_key_id: { type: string, pattern: '^spiffe://' }
+        claim_jti: { type: string }
+        max_rows: { type: integer, minimum: 1 }
+        timeout_ms: { type: integer, minimum: 1 }
+        signature: { type: string, minLength: 32 }
+    ToolResult:
+      oneOf:
+        - type: object
+          required: [ok, rows, rowCount, capped, sourceSystem]
+          properties:
+            ok: { type: boolean, const: true }
+            rows: { type: array, items: {} }
+            rowCount: { type: integer, minimum: 0 }
+            capped: { type: boolean }
+            sourceSystem: { type: string }
+        - type: object
+          required: [ok, failure]
+          properties:
+            ok: { type: boolean, const: false }
+            failure:
+              type: object
+              required: [kind]
+              properties:
+                kind: { type: string }

@@ -52,8 +52,13 @@ export interface State<Kinds extends Record<string, unknown> = Record<never, nev
   terminal(runId: string): Promise<TerminalPayload | null>;
 }
 
+/** Stable identity of one logical tool request. Retries reuse it; later calls do not. */
+export interface InvocationContext {
+  logicalId: string;
+}
+
 // How a call reaches its adapter, nothing more; it never scans or renders. The
 // signal is the run's: a worker that lost its lease drops the calls in flight.
 export interface ToolDispatch {
-  invoke(tool: RegisteredTool, args: Record<string, unknown>, signal?: AbortSignal): Promise<ToolResult>;
+  invoke(tool: RegisteredTool, args: Record<string, unknown>, signal?: AbortSignal, context?: InvocationContext): Promise<ToolResult>;
 }

@@ -206,7 +206,7 @@ class Run<T, Kinds extends Record<string, unknown>> {
           yield* this.record(call, gate.result, gate.checkpoint_id);
           continue;
         }
-        const measured = await this.invoke(tool, call.args);
+        const measured = await this.invoke(tool, call);
         yield* this.record(call, measured.result, gate.checkpoint_id, measured.duration_ms);
       }
     }
@@ -241,17 +241,19 @@ class Run<T, Kinds extends Record<string, unknown>> {
     return answer === "approve" ? { kind: "allowed", checkpoint_id } : { kind: "rejected" };
   }
 
-  private async invoke(tool: RegisteredTool, rawArgs: string): Promise<{ result: ToolResult; duration_ms: number }> {
+  private async invoke(tool: RegisteredTool, call: ToolCall): Promise<{ result: ToolResult; duration_ms: number }> {
     const started = performance.now();
     const finish = (result: ToolResult): { result: ToolResult; duration_ms: number } => ({
       result,
       duration_ms: Math.max(0, Math.round(performance.now() - started)),
     });
-    const args = parseArgs(rawArgs);
+    const args = parseArgs(call.args);
     if (args === null) {
       return finish({ ok: false, failure: { kind: "invalid_args", detail: "arguments were not valid JSON" } });
     }
-    return finish(await this.harness.dispatch.invoke(tool, args, this.cfg.signal));
+    return finish(await this.harness.dispatch.invoke(tool, args, this.cfg.signal, {
+      logicalId: `${this.cfg.run_id}\u0000${this.cfg.role}\u0000${call.id}`,
+    }));
   }
 
   // The one path a result takes, and where wrap scans it. A gated call is journaled
@@ -454,6 +456,7 @@ class Run<T, Kinds extends Record<string, unknown>> {
       checkpoint_class: TOOL_APPROVAL,
       question: `${this.cfg.role} wants to call ${tool} with ${args}. Approve?`,
       raised_at: new Date().toISOString(),
+      context: { tool, args },
     };
     await this.write({ run_id: this.cfg.run_id, run_kind: this.cfg.run_kind, kind: "checkpoint", payload });
     const outcome = this.done("waiting_approval", null, `parked on approval for ${tool}`);

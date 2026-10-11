@@ -14,12 +14,13 @@ import json
 import os
 import uuid
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from pydantic import BaseModel, Field
 
-from core.agents.managed_execution import ManagedAuthority, ManagedSecurityError, QueueEnvelope, TenantContext
+from core.agents.managed_execution import ManagedAuthority, ManagedSecurityError, QueueEnvelope, TenantContext, managed_digest
 from core.agents.managed_service import authority as shared_authority
 from core.agents.managed_store import ManagedRunStore
 from core.agents.queue import enqueue_run, build_resume_job, build_start_job
@@ -73,6 +74,7 @@ class ManagedRunListResponse(BaseModel):
 
 
 class ManagedApprovalRequest(BaseModel):
+    checkpoint_id: str = Field(min_length=1, max_length=200)
     action: str = Field(min_length=1, max_length=200)
     resource: str = Field(min_length=1, max_length=500)
     argument_digest: str = Field(min_length=1, max_length=128)
@@ -91,33 +93,28 @@ class MembershipBinding:
 class MembershipResolver:
     """Resolve membership from deployment-owned configuration.
 
-    ``VIGIL_MANAGED_MEMBERSHIPS`` is an operator-provisioned mapping, not a
-    request-controlled value. A database-backed resolver can replace this
-    adapter without changing the v2 route or signed contract.
+    Membership and deployment ownership are read from tenant-local durable
+    security state. The configured issuer qualifies the immutable local user ID.
     """
 
     def resolve(self, user: User, tenant_hint: Optional[str]) -> MembershipBinding:
-        raw = os.getenv("VIGIL_MANAGED_MEMBERSHIPS", "")
-        if not raw:
+        issuer = os.getenv("VIGIL_AUTH_ISSUER", "")
+        if not issuer:
             raise HTTPException(status_code=503, detail="managed membership authority is unavailable")
         try:
-            mapping = json.loads(raw)
-            candidates = mapping[str(user.user_id)]
-        except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+            item = ManagedRunStore().resolve_membership(str(user.user_id), issuer, tenant_hint)
+        except Exception as exc:
             raise HTTPException(status_code=503, detail="managed membership authority is unavailable") from exc
-        if not isinstance(candidates, list):
-            raise HTTPException(status_code=503, detail="managed membership authority is unavailable")
-        matches = [item for item in candidates if isinstance(item, dict)]
-        if tenant_hint:
-            matches = [item for item in matches if item.get("tenant_id") == tenant_hint]
-        if len(matches) != 1:
+        if item is None:
             raise HTTPException(status_code=403, detail="tenant membership is not uniquely authorized")
-        item = matches[0]
         try:
+            raw_roles = item["roles"]
+            if isinstance(raw_roles, str):
+                raw_roles = json.loads(raw_roles)
             return MembershipBinding(
                 tenant_id=str(item["tenant_id"]),
                 deployment_id=str(item["deployment_id"]),
-                roles=tuple(str(role) for role in item.get("roles", [])),
+                roles=tuple(str(role) for role in raw_roles),
                 membership_version=int(item.get("membership_version", 1)),
                 policy_version=str(item.get("policy_version", "managed-v1")),
                 issuer=str(item.get("issuer", "local")),
@@ -152,9 +149,8 @@ def validate_managed_startup() -> None:
     required = (
         "VIGIL_DEPLOYMENT_ID",
         "VIGIL_MANAGED_AUTHORITY_PRIVATE_KEY",
-        "VIGIL_MANAGED_MEMBERSHIPS",
-        "VIGIL_MANAGED_DATABASE_URL",
-        "VIGIL_MANAGED_MTLS_CA",
+        "VIGIL_AUTH_ISSUER",
+        "VIGIL_AUTH_AUDIENCE",
     )
     missing = [name for name in required if not os.getenv(name)]
     if (
@@ -173,7 +169,19 @@ try:
     _TRIAGE_PROGRAM_DIGEST = _triage_artifact_digest()
 except (ImportError, OSError):
     _TRIAGE_PROGRAM_DIGEST = ""
-_TRIAGE_WORKFLOW_DIGEST = hashlib.sha256(b"vigil-managed-triage-v1").hexdigest()
+def _triage_workflow_digest() -> str:
+    root = Path(__file__).resolve().parents[3] / "services" / "agent" / "managed"
+    digest = hashlib.sha256()
+    digest.update((root / "triage-v1.playbook.yaml").read_bytes())
+    digest.update(b"\0")
+    digest.update((root / "triage-v1.config.yaml").read_bytes())
+    return "sha256:" + digest.hexdigest()
+
+
+try:
+    _TRIAGE_WORKFLOW_DIGEST = _triage_workflow_digest()
+except OSError:
+    _TRIAGE_WORKFLOW_DIGEST = ""
 
 
 def _require_managed_profile() -> None:
@@ -227,6 +235,12 @@ async def start_managed_run(
         "prompt": body.prompt,
         "finding_ids": body.finding_ids,
     }
+    if not _TRIAGE_WORKFLOW_DIGEST:
+        raise HTTPException(status_code=503, detail="approved managed workflow is unavailable")
+    if not _TRIAGE_PROGRAM_DIGEST or not _store.program_active(
+        binding.tenant_id, "triage-dspy-v1", _TRIAGE_PROGRAM_DIGEST
+    ):
+        raise HTTPException(status_code=503, detail="approved managed program is unavailable")
     try:
         envelope = _authority.admit(
             context,
@@ -243,6 +257,7 @@ async def start_managed_run(
                 "workflow_digest": _TRIAGE_WORKFLOW_DIGEST,
                 "program_id": "triage-dspy-v1",
                 "program_digest": _TRIAGE_PROGRAM_DIGEST,
+                "finding_reference_digest": managed_digest({"finding_ids": body.finding_ids}),
             },
         )
     except ManagedSecurityError as exc:
@@ -256,7 +271,7 @@ async def start_managed_run(
         managed_envelope=envelope.as_dict(),
     )
     try:
-        _store.create(
+        outbox_id = _store.create(
             run_id=run_id,
             subject_id=str(current_user.user_id),
             run_kind="investigate",
@@ -265,11 +280,13 @@ async def start_managed_run(
             request=job_request,
             envelope=envelope.as_dict(),
             admission=envelope.admission,
+            outbox_payload=job,
         )
     except Exception as exc:
         raise HTTPException(status_code=503, detail="managed admission store unavailable") from exc
     try:
-        job_id = await enqueue_run(job)
+        job_id = await enqueue_run(job, job_id=f"managed-outbox-{outbox_id}")
+        _store.mark_outbox_published(outbox_id)
     except Exception as exc:
         # The committed outbox is intentionally retained for a publisher retry.
         raise HTTPException(status_code=503, detail="managed run queue unavailable") from exc
@@ -302,7 +319,6 @@ def get_managed_run(run_id: str, current_user: User = Depends(get_current_user))
 def cancel_managed_run(run_id: str, current_user: User = Depends(get_current_user)) -> ManagedRunResponse:
     _require_managed_profile()
     existing = _owned_run(run_id, current_user)
-    _authority.cancel_execution(existing.execution_id)
     binding = _resolver.resolve(current_user, None)
     try:
         row = _store.cancel(existing.run_id, binding.tenant_id, str(current_user.user_id), existing.execution_id)
@@ -320,10 +336,20 @@ def approve_managed_run(
     current_user: User = Depends(get_current_user),
 ) -> ManagedRunResponse:
     _require_managed_profile()
-    existing = _run_for_tenant(run_id, current_user)
     approver_binding = _resolver.resolve(current_user, None)
     if not {"approver", "admin"}.intersection(approver_binding.roles):
         raise HTTPException(status_code=403, detail="authenticated subject is not an approver")
+    try:
+        normalized = str(uuid.UUID(run_id))
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="managed run not found") from exc
+    row = _store.get_for_tenant(normalized, approver_binding.tenant_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="managed run not found")
+    existing = ManagedRunResponse(**{
+        key: str(row[key])
+        for key in ("run_id", "execution_id", "tenant_id", "deployment_id", "status", "workflow_id")
+    })
     if existing.status == "cancelled":
         raise HTTPException(status_code=409, detail="cancelled execution cannot be approved")
     owner_subject_id = _store.owner(existing.run_id, existing.tenant_id)
@@ -333,19 +359,6 @@ def approve_managed_run(
         raise HTTPException(status_code=403, detail="approval requires a distinct authorized approver")
     if not body.action or not body.resource or not body.argument_digest:
         raise HTTPException(status_code=422, detail="approval binding is incomplete")
-    approval_digest = hashlib.sha256(json.dumps({
-        "execution_id": existing.execution_id,
-        "action": body.action,
-        "resource": body.resource,
-        "argument_digest": body.argument_digest,
-    }, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
-    _authority.approve_execution(
-        existing.execution_id,
-        approval_digest=approval_digest,
-        action=body.action,
-        resource=body.resource,
-        argument_digest=body.argument_digest,
-    )
     try:
         approved = _store.approve(
             run_id=existing.run_id,
@@ -357,7 +370,10 @@ def approve_managed_run(
             resource=body.resource,
             argument_digest=body.argument_digest,
             policy_version=approver_binding.policy_version,
+            checkpoint_id=body.checkpoint_id,
         )
+    except ManagedSecurityError as exc:
+        raise HTTPException(status_code=409, detail="approval does not match a pending managed action") from exc
     except Exception as exc:
         raise HTTPException(status_code=503, detail="managed approval store unavailable") from exc
     if approved is None:
@@ -383,12 +399,21 @@ async def resume_managed_run(run_id: str, current_user: User = Depends(get_curre
             tenant_id=existing.tenant_id,
             managed_envelope=resumed_envelope.as_dict(),
         )
-        # This endpoint is deliberately async so success means the durable queue
-        # accepted the signed resume, not merely that API-local state changed.
-        await enqueue_run(job)
+        outbox_id = _store.resume(
+            run_id=existing.run_id,
+            tenant_id=binding.tenant_id,
+            subject_id=str(current_user.user_id),
+            envelope=resumed_envelope,
+            outbox_payload=job,
+        )
+        # A deterministic outbox job id makes a publish/ack crash replay-safe.
+        await enqueue_run(job, job_id=f"managed-outbox-{outbox_id}")
+        _store.mark_outbox_published(outbox_id)
+    except ManagedSecurityError as exc:
+        raise HTTPException(status_code=409, detail="managed run is not resumable") from exc
     except Exception as exc:
         raise HTTPException(status_code=503, detail="managed run queue unavailable") from exc
-    resumed = _store.update_status(existing.run_id, binding.tenant_id, str(current_user.user_id), "queued")
+    resumed = _store.get(existing.run_id, binding.tenant_id, str(current_user.user_id))
     if resumed is None:
         raise HTTPException(status_code=404, detail="managed run not found")
     return ManagedRunResponse(**{key: str(resumed[key]) for key in ("run_id", "execution_id", "tenant_id", "deployment_id", "status", "workflow_id")})

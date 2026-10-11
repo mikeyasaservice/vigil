@@ -48,6 +48,12 @@ export interface RunPayload {
   seed: string;
   tenant_id: string | null;
   started_by: string;
+  // Present for managed investigations. It is journaled at admission so retries
+  // and resumes cannot replace the execution or the admitted finding set.
+  managed_context?: {
+    execution_id: string;
+    finding_ids: readonly string[];
+  };
 }
 
 export interface DispatchPayload {

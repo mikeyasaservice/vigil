@@ -91,39 +91,45 @@ helper. Prefer the Secret when both are set.
 {{- end -}}
 
 {{- define "vigil.env" -}}
+{{- $context := . -}}
+{{- $postgresUser := "vigil_app" -}}
+{{- if hasKey . "context" -}}
+{{- $context = .context -}}
+{{- $postgresUser = .postgresUser -}}
+{{- end -}}
 - name: HOME
   value: "/home/vigil"
 - name: POSTGRES_HOST
-  value: {{ include "vigil.postgres.host" . | quote }}
+  value: {{ include "vigil.postgres.host" $context | quote }}
 - name: POSTGRES_PORT
-  value: {{ include "vigil.postgres.port" . | toString | quote }}
+  value: {{ include "vigil.postgres.port" $context | toString | quote }}
 - name: POSTGRES_DB
-  value: {{ include "vigil.postgres.database" . | quote }}
+  value: {{ include "vigil.postgres.database" $context | quote }}
 {{/* Runtime login; schema owner stays vigil.postgres.username (StatefulSet, db-init). */}}
 - name: POSTGRES_USER
-  value: "vigil_app"
-{{- if .Values.redis.bitnami.enabled }}
-{{- if .Values.redis.bitnami.auth.enabled }}
+  value: {{ $postgresUser | quote }}
+{{- if $context.Values.redis.bitnami.enabled }}
+{{- if $context.Values.redis.bitnami.auth.enabled }}
 - name: REDIS_PASSWORD
   valueFrom:
     secretKeyRef:
-      name: {{ include "vigil.redis.bitnami.passwordSecret" . }}
-      key: {{ include "vigil.redis.bitnami.passwordSecretKey" . }}
+      name: {{ include "vigil.redis.bitnami.passwordSecret" $context }}
+      key: {{ include "vigil.redis.bitnami.passwordSecretKey" $context }}
 {{- end }}
 - name: REDIS_URL
-  value: {{ include "vigil.redis.url" . | quote }}
-{{- else if .Values.redis.enabled }}
+  value: {{ include "vigil.redis.url" $context | quote }}
+{{- else if $context.Values.redis.enabled }}
 - name: REDIS_URL
-  value: {{ include "vigil.redis.url" . | quote }}
-{{- else if .Values.redis.external.url }}
+  value: {{ include "vigil.redis.url" $context | quote }}
+{{- else if $context.Values.redis.external.url }}
 - name: REDIS_URL
-  value: {{ .Values.redis.external.url | quote }}
-{{- else if .Values.redis.external.existingSecret }}
+  value: {{ $context.Values.redis.external.url | quote }}
+{{- else if $context.Values.redis.external.existingSecret }}
 - name: REDIS_URL
   valueFrom:
     secretKeyRef:
-      name: {{ .Values.redis.external.existingSecret }}
-      key: {{ .Values.redis.external.existingSecretKey | default "REDIS_URL" }}
+      name: {{ $context.Values.redis.external.existingSecret }}
+      key: {{ $context.Values.redis.external.existingSecretKey | default "REDIS_URL" }}
 {{- end }}
 {{- end -}}
 

@@ -28,7 +28,7 @@ def artifact_digest() -> str:
         (
             Path(__file__).read_bytes(),
             json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode(),
-            (root.parent / "requirements.txt").read_bytes(),
+            (root.parent / "requirements.lock").read_bytes(),
         )
     )
     return "sha256:" + hashlib.sha256(payload).hexdigest()

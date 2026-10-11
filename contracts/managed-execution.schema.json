@@ -1,16 +1,16 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://vigil.example/contracts/managed-execution-v2.json",
-  "title": "Managed execution queue envelope v2",
+  "$id": "https://vigil.example/contracts/managed-execution-v3.json",
+  "title": "Managed execution queue envelope v3",
   "type": "object",
   "required": ["schema_version", "admission", "execution_id", "reason", "references", "signature"],
   "properties": {
-    "schema_version": {"const": 2},
+    "schema_version": {"const": 3},
     "execution_id": {"type": "string", "minLength": 16, "maxLength": 128},
     "reason": {"enum": ["start", "resume"]},
     "references": {
       "type": "object",
-      "required": ["run_id", "run_kind", "request_digest"],
+      "required": ["run_id", "run_kind", "request_digest", "workflow_id", "workflow_digest", "program_id", "program_digest", "finding_reference_digest"],
       "properties": {
         "run_id": {"type": "string", "minLength": 1},
         "run_kind": {"type": "string", "const": "investigate"},
@@ -19,6 +19,7 @@
         "workflow_digest": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
         "program_id": {"type": "string", "minLength": 1},
         "program_digest": {"type": "string", "pattern": "^(sha256:)?[a-f0-9]{64}$"}
+        ,"finding_reference_digest": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
       },
       "additionalProperties": {"type": "string", "maxLength": 256}
     },
@@ -27,7 +28,7 @@
       "type": "object",
       "required": ["schema_version", "admission_id", "context", "workflow_id", "workflow_digest", "program_id", "program_digest", "request_digest", "issued_at", "expires_at", "revocation_epoch"],
       "properties": {
-        "schema_version": {"const": 2},
+        "schema_version": {"const": 3},
         "admission_id": {"type": "string", "minLength": 1},
         "workflow_id": {"type": "string", "minLength": 1},
         "workflow_digest": {"type": "string", "pattern": "^[a-f0-9]{64}$"},

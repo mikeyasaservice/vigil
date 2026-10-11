@@ -7,6 +7,7 @@ Handles password hashing, JWT generation/validation, MFA, and session management
 import base64
 import hashlib
 import logging
+import os
 import secrets
 import time
 import uuid
@@ -172,6 +173,13 @@ class AuthService:
             "iat": now,
         }
 
+        if os.getenv("VIGIL_EXECUTION_PROFILE", "standalone").lower() == "managed":
+            issuer = os.getenv("VIGIL_AUTH_ISSUER", "")
+            audience = os.getenv("VIGIL_AUTH_AUDIENCE", "")
+            if not issuer or not audience:
+                raise RuntimeError("managed authentication issuer and audience are required")
+            payload.update({"iss": issuer, "aud": audience})
+
         # Bind token to session context when available
         if user_agent:
             payload["sfp"] = AuthService._session_fingerprint(user_agent)
@@ -206,7 +214,22 @@ class AuthService:
             Decoded payload or None if invalid
         """
         try:
-            payload = jwt.decode(token, JWT_SECRET_KEY, algorithms=[JWT_ALGORITHM])
+            managed = os.getenv("VIGIL_EXECUTION_PROFILE", "standalone").lower() == "managed"
+            if managed:
+                issuer = os.getenv("VIGIL_AUTH_ISSUER", "")
+                audience = os.getenv("VIGIL_AUTH_AUDIENCE", "")
+                if not issuer or not audience:
+                    return None
+                payload = jwt.decode(
+                    token,
+                    JWT_SECRET_KEY,
+                    algorithms=[JWT_ALGORITHM],
+                    issuer=issuer,
+                    audience=audience,
+                    options={"require": ["iss", "aud"]},
+                )
+            else:
+                payload = jwt.decode(token, JWT_SECRET_KEY, algorithms=[JWT_ALGORITHM])
             return payload
         except jwt.ExpiredSignatureError:
             logger.warning("JWT token expired")

@@ -2,6 +2,7 @@ import OpenAI from "openai";
 import type { RunKind } from "./contracts/events.js";
 import type { RegisteredTool, ToolPrincipal, ToolResult } from "./contracts/tool.js";
 import { budgetOf, FRESH, unmeteredQuota, type Seed } from "./core/budget.js";
+import { noPrices } from "./core/prices.js";
 import { httpPrices } from "./core/prices.js";
 import { Limiter } from "./core/limiter.js";
 import type { Harness } from "./core/loop.js";
@@ -9,9 +10,9 @@ import { nullMemory } from "./core/memory.js";
 import { httpRecall } from "./core/recall.js";
 import { registryOf } from "./core/registry.js";
 import { remoteDispatch } from "./core/remote.js";
-import { invocationId, managedAuthorizer, type ManagedGatewayClient, type ManagedGrant } from "./core/managed-gateway.js";
+import { managedAuthorizer, type ManagedGatewayClient, type ManagedGrant } from "./core/managed-gateway.js";
 import type { ManagedExecutionIdentity } from "./core/managed.js";
-import { httpReasoner } from "./core/reasoner.js";
+import { httpReasoner } from "./managed/reasoner.js";
 import type { Memory, State } from "./core/seams.js";
 import type { RunSpec } from "./core/spec.js";
 import { httpVirtualKey } from "./core/vk.js";
@@ -86,24 +87,42 @@ export function harnessFor<K extends Record<string, unknown>>(
   const tools = process.env["VIGIL_TOOLS_URL"] ?? "http://localhost:6987/internal/tools/invoke";
   const managed = process.env["VIGIL_EXECUTION_PROFILE"] === "managed";
   let authorize: ((tool: RegisteredTool, args: Record<string, unknown>, signal?: AbortSignal) => Promise<ToolResult>) | undefined;
-  // A pre-issued grant may be supplied by the trusted worker bootstrap. When it is
-  // absent, the gateway may issue a one-call grant from the claimed identity; the
-  // worker still cannot choose capabilities outside that identity.
-  const rawGrant = process.env["VIGIL_MANAGED_TOOL_GRANT"];
   if (managed && managedIdentity !== undefined) {
-    let grant: ManagedGrant | undefined;
-    try { if (rawGrant !== undefined) grant = JSON.parse(rawGrant) as ManagedGrant; } catch { grant = undefined; }
     try {
+      const gateway = (process.env["VIGIL_MANAGED_GATEWAY_URL"] ?? "http://127.0.0.1:15001/v1").replace(/\/$/, "");
+      const boundBody = (input: { identity: ManagedExecutionIdentity; tool: string; args: Record<string, unknown>; max_rows: number; timeout_ms: number }) => ({
+        execution_id: input.identity.execution_id,
+        tenant_id: input.identity.tenant_id,
+        deployment_id: input.identity.deployment_id,
+        worker_key_id: input.identity.worker_key_id,
+        claim_token: input.identity.jti,
+        attestation: input.identity.attestation,
+        tool: input.tool,
+        args: input.args,
+        max_rows: input.max_rows,
+        timeout_ms: input.timeout_ms,
+      });
       const client: ManagedGatewayClient = {
+        async issue(input, signal): Promise<ManagedGrant> {
+          const response = await fetch(`${gateway}/grants`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(boundBody(input)),
+            signal,
+          });
+          if (!response.ok) throw new Error(`managed grant denied (${response.status})`);
+          const grant = await response.json() as ManagedGrant;
+          if (typeof grant.signature !== "string" || grant.signature === "") throw new Error("managed gateway returned an unsigned grant");
+          return grant;
+        },
         async authorize(input, signal): Promise<ToolResult> {
-          const response = await fetch(process.env["VIGIL_MANAGED_GATEWAY_URL"] ?? "http://security:8080/v1/authorize", {
+          const response = await fetch(`${gateway}/authorize`, {
             method: "POST",
             headers: {
               "content-type": "application/json",
-              "x-vigil-client-cert": process.env["VIGIL_WORKER_CERT_FINGERPRINT"] ?? "",
-              "x-vigil-invocation-id": invocationId(input.identity.execution_id, input.tool, input.args),
+              "x-vigil-invocation-id": input.invocation_id,
             },
-            body: JSON.stringify({ ...input, execution_id: input.identity.execution_id, tenant_id: input.identity.tenant_id, deployment_id: input.identity.deployment_id, worker_key_id: input.identity.worker_key_id, claim_token: input.identity.jti, attestation: input.identity.attestation }),
+            body: JSON.stringify({ ...boundBody(input), grant: input.grant }),
             signal,
           });
           if (!response.ok) throw new Error(`managed gateway denied (${response.status})`);
@@ -112,7 +131,7 @@ export function harnessFor<K extends Record<string, unknown>>(
           return result;
         },
       };
-      authorize = managedAuthorizer(client, grant, managedIdentity);
+      authorize = managedAuthorizer(client, managedIdentity);
     } catch {
       authorize = undefined;
     }
@@ -132,12 +151,12 @@ export function harnessFor<K extends Record<string, unknown>>(
       ...(principal === undefined ? {} : { principal }),
       ...(managed ? { managed: true, ...(authorize === undefined ? {} : { authorize }) } : {}),
     }),
-    ...(managed ? { reasoner: httpReasoner({ url: process.env["VIGIL_REASONER_URL"] ?? "http://reasoner:8080/v1/evaluate", token: process.env["VIGIL_REASONER_INTERNAL_TOKEN"] ?? "", programDigest: managedIdentity?.program_digest ?? "" }) } : {}),
-    budget: budgetOf(spec.budgets, unmeteredQuota, Date.now, seed, prices),
+    ...(managed && managedIdentity !== undefined ? { reasoner: httpReasoner({ url: process.env["VIGIL_REASONER_URL"] ?? "http://127.0.0.1:15002/v1/evaluate", token: process.env["VIGIL_REASONER_INTERNAL_TOKEN"] ?? "", programDigest: managedIdentity.program_digest, identity: managedIdentity }) } : {}),
+    budget: budgetOf(spec.budgets, unmeteredQuota, Date.now, seed, managed ? noPrices : prices),
     // Wrapped rather than replaced: whatever the caller passed still answers the
     // cue-shaped recall, and the keyed read is added over the same endpoint the
     // tools go to -- one address for the far side, not two to keep in step.
-    memory: httpRecall(memory, { url: tools, token: internalToken() }),
+    memory: managed ? nullMemory : httpRecall(memory, { url: tools, token: internalToken() }),
     state,
   };
 }

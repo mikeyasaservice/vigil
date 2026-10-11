@@ -9,4 +9,4 @@ if ! cilium status --context kind-vigil-phase2 >/dev/null 2>&1; then
   cilium install --context kind-vigil-phase2
 fi
 cilium status --wait --context kind-vigil-phase2
-echo "kind-vigil-phase2 is ready; start the isolated LocalStack instance before Pulumi up"
+echo "kind-vigil-phase2 is ready; Pulumi will create tenant-local qualification targets"

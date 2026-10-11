@@ -37,10 +37,27 @@ spec:
         {{- toYaml . | nindent 8 }}
         {{- end }}
     spec:
-      serviceAccountName: {{ include "vigil.serviceAccountName" . }}
+      serviceAccountName: {{ if .Values.managedExecution.enabled }}{{ include "vigil.fullname" . }}-agent-worker{{ else }}{{ include "vigil.serviceAccountName" . }}{{ end }}
+      automountServiceAccountToken: false
       {{- include "vigil.imagePullSecrets" . | nindent 6 }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- if .Values.managedExecution.enabled }}
+      initContainers:
+        - name: wait-agent-ledger
+          image: "{{ .Values.dbInit.image.repository }}:{{ .Values.dbInit.image.tag }}"
+          imagePullPolicy: {{ .Values.dbInit.image.pullPolicy | default "IfNotPresent" }}
+          env:
+            - { name: PGHOST, value: {{ include "vigil.postgres.host" . | quote }} }
+            - { name: PGPORT, value: {{ include "vigil.postgres.port" . | quote }} }
+            - { name: PGDATABASE, value: {{ include "vigil.postgres.database" . | quote }} }
+            - { name: PGUSER, value: vigil_agent }
+            - name: PGPASSWORD
+              valueFrom: { secretKeyRef: { name: {{ include "vigil.postgres.passwordSecret" . }}, key: {{ include "vigil.postgres.passwordSecretKey" . }} } }
+          command: ["/bin/sh", "-ec"]
+          args: ["for i in $(seq 1 120); do psql -v ON_ERROR_STOP=1 -c 'SELECT 1 FROM agent_events LIMIT 0' >/dev/null 2>&1 && exit 0; sleep 2; done; echo 'agent ledger unavailable' >&2; exit 1"]
+          securityContext: {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+      {{- end }}
       containers:
         - name: agent-worker
           image: {{ include "vigil.image" (dict "context" . "component" "agentWorker") | quote }}
@@ -57,9 +74,45 @@ spec:
                   key: {{ include "vigil.postgres.passwordSecretKey" . }}
             {{- /* The worker reads the discrete parts, not a DSN or a URL: a
                    $(VAR) substituted into either is not URL-encoded. */}}
+            {{- if .Values.managedExecution.enabled }}
+            {{- include "vigil.env" (dict "context" . "postgresUser" "vigil_agent") | nindent 12 }}
+            {{- else }}
             {{- include "vigil.env" . | nindent 12 }}
+            {{- end }}
             {{- include "vigil.agentRedisEnv" . | nindent 12 }}
             {{- include "vigil.caBundleEnv" . | nindent 12 }}
+            {{- if .Values.managedExecution.enabled }}
+            - name: VIGIL_EXECUTION_PROFILE
+              value: managed
+            - name: VIGIL_DEPLOYMENT_ID
+              value: {{ required "managedExecution.deploymentId is required" .Values.managedExecution.deploymentId | quote }}
+            - name: VIGIL_WORKER_SPIFFE_ID
+              value: {{ printf "spiffe://%s/ns/%s/sa/%s-agent-worker" .Values.managedExecution.trustDomain .Release.Namespace (include "vigil.fullname" .) | quote }}
+            - name: VIGIL_MANAGED_CAPABILITIES
+              value: {{ .Values.managedExecution.capabilities | quote }}
+            - name: VIGIL_MANAGED_CLAIM_URL
+              value: http://127.0.0.1:15001/v1/claim
+            - name: VIGIL_MANAGED_GATEWAY_URL
+              value: http://127.0.0.1:15001/v1
+            - name: VIGIL_REASONER_URL
+              value: http://127.0.0.1:15002/v1/evaluate
+            # Managed definitions, lifecycle state, pricing, memory and tools do
+            # not use the backend's shared internal-token surface.
+            - { name: VIGIL_PLAYBOOKS_URL, value: "" }
+            - { name: VIGIL_RUNS_URL, value: "" }
+            - { name: VIGIL_PRICING_URL, value: "" }
+            - { name: VIGIL_TOOLS_URL, value: "" }
+            - name: VIGIL_MANAGED_AUTHORITY_PUBLIC_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "managedExecution.trustSecretName is required" .Values.managedExecution.trustSecretName }}
+                  key: {{ .Values.managedExecution.authorityPublicKeySecretKey }}
+            - name: VIGIL_REASONER_INTERNAL_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.managedExecution.trustSecretName }}
+                  key: {{ .Values.managedExecution.reasonerTokenSecretKey }}
+            {{- end }}
             {{- with .Values.agentWorker.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
@@ -101,9 +154,33 @@ spec:
           volumeMounts:
             {{- . | nindent 12 }}
           {{- end }}
-      {{- with include "vigil.caBundleVolume" . }}
+        {{- if .Values.managedExecution.enabled }}
+        - name: identity-proxy
+          image: {{ .Values.managedExecution.envoy.image | quote }}
+          args: ["-c", "/etc/envoy/envoy.yaml", "--log-level", "warn"]
+          resources:
+            {{- toYaml .Values.managedExecution.envoy.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          volumeMounts:
+            - { name: worker-envoy, mountPath: /etc/envoy, readOnly: true }
+            - { name: spire-agent-socket, mountPath: /run/spire/sockets/agent.sock, readOnly: true }
+        {{- end }}
+      {{- if or .Values.managedExecution.enabled (include "vigil.caBundleVolume" .) }}
       volumes:
+        {{- with include "vigil.caBundleVolume" . }}
         {{- . | nindent 8 }}
+        {{- end }}
+        {{- if .Values.managedExecution.enabled }}
+        - name: worker-envoy
+          configMap:
+            name: {{ include "vigil.fullname" . }}-managed-envoy
+            items: [{ key: worker.yaml, path: envoy.yaml }]
+        - name: spire-agent-socket
+          hostPath:
+            path: {{ .Values.managedExecution.spireAgentSocketHostPath | quote }}
+            type: Socket
+        {{- end }}
       {{- end }}
       {{- with .Values.agentWorker.nodeSelector }}
       nodeSelector:

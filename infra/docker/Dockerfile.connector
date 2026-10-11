@@ -1,0 +1,11 @@
+FROM python:3.12.12-slim
+WORKDIR /app
+COPY services/connector/requirements.lock /app/services/connector/requirements.lock
+RUN pip install --no-cache-dir -r /app/services/connector/requirements.lock \
+    && groupadd -g 1000 vigil \
+    && useradd -u 1000 -g 1000 -d /home/vigil -m -s /sbin/nologin vigil
+COPY --chown=vigil:vigil services/connector/ /app/services/connector/
+USER 1000:1000
+ENV HOME=/home/vigil PYTHONPATH=/app PYTHONUNBUFFERED=1
+EXPOSE 8083
+CMD ["uvicorn", "services.connector.app:app", "--host", "127.0.0.1", "--port", "8083"]

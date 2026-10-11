@@ -6,7 +6,7 @@ import type { RunJob } from "../../contracts/job.js";
 import { InProcessLeases, LEASE_TTL_MS } from "../../core/leases.js";
 import { seedFrom } from "../../core/budget.js";
 import { InProcessState } from "../../core/state.js";
-import { advance, resolveSpec, sweepOnce, type Enqueue } from "../../worker.js";
+import { advance, isFinalAttempt, resolveSpec, sweepOnce, watchdogEnabled, type Enqueue } from "../../worker.js";
 import { scriptedHarness } from "../support/scripted-harness.js";
 import type { ScriptedTurn } from "../support/scripted-provider.js";
 
@@ -28,6 +28,15 @@ beforeEach(() => {
   clock = Date.now();
   state = new InProcessState(() => clock);
   leases = new InProcessLeases(() => clock);
+});
+
+describe("managed retry lifecycle", () => {
+  it("marks only the configured last BullMQ attempt final", () => {
+    expect(isFinalAttempt(0, 3)).toBe(false);
+    expect(isFinalAttempt(1, 3)).toBe(false);
+    expect(isFinalAttempt(2, 3)).toBe(true);
+    expect(isFinalAttempt(0, undefined)).toBe(true);
+  });
 });
 
 // The real resolved spec, so a resume reads what a resume reads. investigate,
@@ -195,6 +204,11 @@ describe("a run parked past its TTL is abandoned rather than left parked", () =>
 });
 
 describe("a run nobody is working on is put back on the queue", () => {
+  it("leaves managed recovery to the signed durable resume path", () => {
+    expect(watchdogEnabled("managed")).toBe(false);
+    expect(watchdogEnabled("standalone")).toBe(true);
+  });
+
   it("enqueues a resume for a lapsed claim and not for a held one", async () => {
     await leases.claim(RUN, "investigate", "worker-a", LEASE_TTL_MS);
 

@@ -11,7 +11,7 @@ export const RUN_QUEUE = "agent-runs";
 
 /** Signed admission produced by the tenant-local managed authority. */
 export interface ManagedQueueEnvelope {
-  schema_version: 2;
+  schema_version: 2 | 3;
   admission: Record<string, unknown>;
   execution_id: string;
   reason: "start" | "resume";

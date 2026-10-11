@@ -8,6 +8,11 @@ import { drain, streamTurn } from "../../core/stream.js";
 import { SpecError, unboundCapabilities, type RoleSpec, type RunSpec } from "../../core/spec.js";
 import { topologyFor, type Assignment, type Round } from "../../core/topology.js";
 import { scrub } from "../../core/security.js";
+import {
+  reasonerProvider,
+  validateReasonerResult,
+  type ReasonerInput,
+} from "../../managed/reasoner.js";
 import { CALL_BUDGET, callsOf } from "../hunt/adapters.js";
 
 // What every arch's lead emits. Everything past action is arch-specific and read
@@ -51,6 +56,10 @@ export interface LeadOptions {
   // Aborted when this worker loses its lease. The provider request carries it, so
   // a worker that has been declared dead stops paying for a call nobody records.
   signal?: AbortSignal;
+  managed_context?: {
+    execution_id: string;
+    finding_ids: readonly string[];
+  };
 }
 
 export interface LeadReport {
@@ -86,12 +95,7 @@ export async function runLead(harness: Harness<LeadKinds>, options: LeadOptions)
   // Managed triage is selected by the approved harness, not by the model. The
   // reasoner only returns typed hypotheses and proposals; all subsequent tool
   // calls still pass through the independent dispatch boundary.
-  const triage = harness.reasoner === undefined ? null : await harness.reasoner.evaluate({
-    execution_id: run_id,
-    finding_ids: openingKeys(spec),
-    evidence: [],
-    budget_tokens: 2048,
-  });
+  const triage = harness.reasoner === undefined ? null : await evaluateTriage(harness, options);
   const triageBrief = triage === null ? "" : `\nPinned triage assessment:\n${JSON.stringify({ hypotheses: triage.hypotheses, limitations: triage.limitations, proposed_actions: triage.proposed_actions, confidence: triage.confidence })}`;
   const rounds: Round[] = [];
   for (;;) {
@@ -102,7 +106,8 @@ export async function runLead(harness: Harness<LeadKinds>, options: LeadOptions)
     const started = performance.now();
     // Rendered from the ledger each turn, never journaled: a resume derives the same text.
     const task = `${brief(spec)}${triageBrief}${held(await harness.state.read(run_id), spec)}`;
-    const outcome = await drain(streamTurn<Decision, LeadKinds>(turnFor(options, "lead", lead, task), cueing(harness, brief(spec))));
+    const wired = triage === null ? harness : { ...harness, provider: reasonerProvider(triage) };
+    const outcome = await drain(streamTurn<Decision, LeadKinds>(turnFor(options, "lead", lead, task), cueing(wired, brief(spec))));
     const durationMs = Math.round(performance.now() - started);
     if (outcome.status === "waiting_approval") {
       // Announced every time the run is looked at, not only when it first parks:
@@ -135,6 +140,33 @@ export async function runLead(harness: Harness<LeadKinds>, options: LeadOptions)
     // gone quiet is finished whether or not anyone said so.
     if (topology.settled(rounds)) return end(harness, options, "completed", `the ${topology.id} went quiet`);
   }
+}
+
+async function evaluateTriage(harness: Harness<LeadKinds>, options: LeadOptions) {
+  const managed = options.managed_context;
+  if (managed === undefined) throw new Error("managed reasoner requires admitted investigation context");
+  const getFinding = harness.registry.get("lead", "get_finding");
+  if (getFinding === undefined) throw new Error("managed triage requires the get_finding capability");
+
+  const evidence = [];
+  for (const findingId of managed.finding_ids) {
+    const result = await harness.dispatch.invoke(
+      getFinding,
+      { finding_id: findingId },
+      options.signal,
+      { logicalId: `reasoner-evidence:${findingId}` },
+    );
+    if (!result.ok) throw new Error(`managed triage could not read admitted finding ${findingId}: ${result.failure.kind}`);
+    evidence.push({ evidence_id: `finding:${findingId}`, finding_id: findingId, records: result.rows });
+  }
+
+  const input: ReasonerInput = {
+    execution_id: managed.execution_id,
+    finding_ids: managed.finding_ids,
+    evidence,
+    budget_tokens: 2048,
+  };
+  return validateReasonerResult(input, await harness.reasoner!.evaluate(input, options.signal));
 }
 
 // A worker the arch declares, or nothing. A name the roster does not hold is a
@@ -332,6 +364,7 @@ async function open(harness: Harness<LeadKinds>, options: LeadOptions): Promise<
       seed: options.run_id,
       tenant_id: null,
       started_by: options.started_by ?? "worker",
+      ...(options.managed_context === undefined ? {} : { managed_context: options.managed_context }),
     }),
     ...unbound,
   ]);

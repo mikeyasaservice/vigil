@@ -7,7 +7,7 @@ import { budgetOf, unmeteredQuota } from "../../core/budget.js";
 import { localDispatch } from "../../core/dispatch.js";
 import type { Harness } from "../../core/loop.js";
 import { nullMemory } from "../../core/memory.js";
-import type { Memory } from "../../core/seams.js";
+import type { Memory, ToolDispatch } from "../../core/seams.js";
 import { registryOf } from "../../core/registry.js";
 import { buildSpec, type RunSpec } from "../../core/spec.js";
 import { InProcessState } from "../../core/state.js";
@@ -99,6 +99,54 @@ const SINGLE: ScriptedTurn[] = [
 ];
 
 describe("an arch drives the loop", () => {
+  it("feeds DSPy the admitted findings and gateway-authorized evidence", async () => {
+    const spec = specFor("investigate", "case.playbook.yaml", "case.config.yaml");
+    const state = new InProcessState<LeadKinds>();
+    const base = harnessOf(spec, SINGLE, state);
+    const calls: Array<{ args: Record<string, unknown>; logicalId?: string }> = [];
+    const dispatch: ToolDispatch = {
+      invoke: async (_tool, args, _signal, context) => {
+        calls.push({ args, logicalId: context?.logicalId });
+        return { ok: true, rows: [{ finding_id: args["finding_id"], summary: "authorized" }], rowCount: 1, capped: false, sourceSystem: "findings" };
+      },
+    };
+    const evaluated: unknown[] = [];
+    const harness: Harness<LeadKinds> = {
+      ...base,
+      dispatch,
+      reasoner: {
+        evaluate: async (input) => {
+          evaluated.push(input);
+          return { hypotheses: ["credential misuse"], evidence_refs: ["finding:f-1"], confidence: 0.8, limitations: [], proposed_actions: ["propose:read telemetry"], input_tokens: 20, output_tokens: 10 };
+        },
+      },
+    };
+
+    const report = await runLead(harness, {
+      ...options("investigate", spec),
+      managed_context: { execution_id: "execution-123", finding_ids: ["f-1", "f-2"] },
+    });
+
+    expect(calls).toEqual([
+      { args: { finding_id: "f-1" }, logicalId: "reasoner-evidence:f-1" },
+      { args: { finding_id: "f-2" }, logicalId: "reasoner-evidence:f-2" },
+    ]);
+    expect(evaluated).toEqual([expect.objectContaining({
+      execution_id: "execution-123",
+      finding_ids: ["f-1", "f-2"],
+      evidence: [
+        { evidence_id: "finding:f-1", finding_id: "f-1", records: [{ finding_id: "f-1", summary: "authorized" }] },
+        { evidence_id: "finding:f-2", finding_id: "f-2", records: [{ finding_id: "f-2", summary: "authorized" }] },
+      ],
+    })]);
+    expect(report.status).toBe("completed");
+    const events = await state.read(RUN);
+    expect(events.find((event) => event.kind === "decision")?.payload).toEqual(expect.objectContaining({
+      action: "CONCLUDE",
+      rationale: expect.stringContaining("credential misuse"),
+    }));
+  });
+
   it("runs the fan-out arch to completion and dispatches the worker it named", async () => {
     const spec = specFor("hunt", "hunt.playbook.yaml", "hunt.config.yaml");
     const state = new InProcessState<LeadKinds>();

@@ -30,6 +30,22 @@ spec:
       {{- include "vigil.imagePullSecrets" . | nindent 6 }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- if .Values.managedExecution.enabled }}
+      initContainers:
+        - name: wait-managed-schema
+          image: "{{ .Values.dbInit.image.repository }}:{{ .Values.dbInit.image.tag }}"
+          imagePullPolicy: {{ .Values.dbInit.image.pullPolicy | default "IfNotPresent" }}
+          env:
+            - { name: PGHOST, value: {{ include "vigil.postgres.host" . | quote }} }
+            - { name: PGPORT, value: {{ include "vigil.postgres.port" . | quote }} }
+            - { name: PGDATABASE, value: {{ include "vigil.postgres.database" . | quote }} }
+            - { name: PGUSER, value: vigil_app }
+            - name: PGPASSWORD
+              valueFrom: { secretKeyRef: { name: {{ include "vigil.postgres.passwordSecret" . }}, key: {{ include "vigil.postgres.passwordSecretKey" . }} } }
+          command: ["/bin/sh", "-ec"]
+          args: ["for i in $(seq 1 120); do psql -v ON_ERROR_STOP=1 -c 'SELECT 1 FROM managed_admissions LIMIT 0' >/dev/null 2>&1 && exit 0; sleep 2; done; echo 'managed schema unavailable' >&2; exit 1"]
+          securityContext: {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+      {{- end }}
       containers:
         - name: backend
           image: {{ include "vigil.image" (dict "context" . "component" "backend") | quote }}
@@ -49,6 +65,26 @@ spec:
             {{- include "vigil.env" . | nindent 12 }}
             {{- include "vigil.stateEnv" . | nindent 12 }}
             {{- include "vigil.caBundleEnv" . | nindent 12 }}
+            {{- if .Values.managedExecution.enabled }}
+            - name: VIGIL_EXECUTION_PROFILE
+              value: managed
+            - name: VIGIL_DEPLOYMENT_ID
+              value: {{ required "managedExecution.deploymentId is required" .Values.managedExecution.deploymentId | quote }}
+            - name: VIGIL_AUTH_ISSUER
+              value: {{ required "managedExecution.authIssuer is required" .Values.managedExecution.authIssuer | quote }}
+            - name: VIGIL_AUTH_AUDIENCE
+              value: {{ required "managedExecution.authAudience is required" .Values.managedExecution.authAudience | quote }}
+            - name: VIGIL_MANAGED_AUTHORITY_PRIVATE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "managedExecution.trustSecretName is required" .Values.managedExecution.trustSecretName }}
+                  key: {{ .Values.managedExecution.authorityPrivateKeySecretKey }}
+            - name: VIGIL_MANAGED_AUTHORITY_PUBLIC_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.managedExecution.trustSecretName }}
+                  key: {{ .Values.managedExecution.authorityPublicKeySecretKey }}
+            {{- end }}
             {{- range $k, $v := .Values.backend.env }}
             - name: {{ $k }}
               value: {{ $v | quote }}

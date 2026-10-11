@@ -1,6 +1,9 @@
 """Negative tests for the Phase 2 admission and gateway boundary."""
 
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
+from dataclasses import replace
+import json
+from pathlib import Path
 
 import pytest
 
@@ -9,8 +12,42 @@ from core.agents.managed_execution import (
     Invocation,
     ManagedAuthority,
     ManagedSecurityError,
+    QueueEnvelope,
     TenantContext,
+    managed_digest,
 )
+
+
+def test_managed_digest_matches_cross_language_rfc8785_fixture() -> None:
+    fixture_path = Path(__file__).parents[3] / "contracts" / "fixtures" / "managed-canonicalization.json"
+    fixture = json.loads(fixture_path.read_text(encoding="utf-8"))
+    assert managed_digest(fixture["input"]) == fixture["sha256"]
+
+
+def test_resume_renews_expired_admission_without_changing_pinned_work() -> None:
+    authority = ManagedAuthority()
+    envelope = authority.admit(
+        context(), admission_id="resume-expired", workflow_id="triage-v1",
+        workflow_digest="workflow-digest", program_id="triage-dspy-v1",
+        program_digest="program-digest", request={"finding_ids": ["finding-a"]},
+    )
+    expired_admission = replace(
+        envelope.admission,
+        issued_at=datetime.now(timezone.utc) - timedelta(minutes=10),
+        expires_at=datetime.now(timezone.utc) - timedelta(minutes=5),
+    )
+    expired = replace(envelope, admission=expired_admission, signature="")
+    expired = replace(expired, signature=authority.signer.sign(expired.signed_payload))
+    authority.admissions[expired_admission.admission_id] = expired_admission
+
+    resumed = authority.reissue(expired, reason="resume")
+
+    assert resumed.reason == "resume"
+    assert resumed.execution_id == envelope.execution_id
+    assert resumed.references == envelope.references
+    assert resumed.admission.request_digest == envelope.admission.request_digest
+    assert resumed.admission.program_digest == envelope.admission.program_digest
+    assert resumed.admission.expires_at > datetime.now(timezone.utc)
 
 
 def context(tenant: str = "tenant-a") -> TenantContext:
@@ -48,6 +85,25 @@ def test_signed_admission_rejects_tampering_before_claim() -> None:
         authority.claim(tampered, worker_key_id="worker-a", capabilities=("findings.read",))
 
 
+def test_signed_envelope_transport_round_trip_remains_claimable() -> None:
+    authority = ManagedAuthority()
+    envelope = authority.admit(
+        context(), admission_id="admission-round-trip", workflow_id="triage-v1",
+        workflow_digest="workflow-digest", program_id="triage-dspy-v1",
+        program_digest="program-digest", request={"finding_ids": ["finding-a"]},
+    )
+
+    serialized = envelope.as_dict()
+    assert serialized["schema_version"] == 3
+    transported = QueueEnvelope.from_dict(serialized)
+    identity = authority.claim(
+        transported, worker_key_id="worker-a", capabilities=("findings.read",)
+    )
+
+    assert identity.execution_id == envelope.execution_id
+    assert transported.signature == envelope.signature
+
+
 def test_foreign_tenant_and_wrong_worker_cannot_use_grant() -> None:
     authority = ManagedAuthority()
     envelope = authority.admit(
@@ -62,6 +118,32 @@ def test_foreign_tenant_and_wrong_worker_cannot_use_grant() -> None:
         authority.authorize(foreign)
     with pytest.raises(ManagedSecurityError):
         authority.grant(identity, grant_id="grant-b", action="findings.read", resource="finding-a", arguments={}, workload_key_id="worker-b")
+
+
+def test_tool_grant_signature_binds_arguments_bounds_and_claim() -> None:
+    authority = ManagedAuthority()
+    envelope = authority.admit(
+        context(), admission_id="signed-grant", workflow_id="triage-v1",
+        workflow_digest="w", program_id="p", program_digest="pd", request={},
+    )
+    identity = authority.claim(
+        envelope, worker_key_id="worker-a", capabilities=("findings.read",)
+    )
+    grant = authority.grant(
+        identity, grant_id="grant-signed", action="findings.read",
+        resource="finding-a", arguments={"id": "finding-a"},
+        workload_key_id="worker-a", max_rows=10, timeout_ms=500,
+    )
+
+    assert grant.signature
+    authority.verify_tool_grant(grant)
+    for changed in (
+        replace(grant, argument_digest="0" * 64),
+        replace(grant, max_rows=11),
+        replace(grant, claim_jti="other-claim"),
+    ):
+        with pytest.raises(ManagedSecurityError):
+            authority.verify_tool_grant(changed)
 
 
 def test_revocation_and_missing_budget_fail_closed() -> None:

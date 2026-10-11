@@ -92,6 +92,29 @@ class TestJWT:
         assert a["token_type"] == "access"
         assert r["token_type"] == "refresh"
 
+    def test_managed_tokens_require_the_configured_issuer_and_audience(self, monkeypatch):
+        monkeypatch.setenv("VIGIL_EXECUTION_PROFILE", "managed")
+        monkeypatch.setenv("VIGIL_AUTH_ISSUER", "https://issuer.vigil.test")
+        monkeypatch.setenv("VIGIL_AUTH_AUDIENCE", "vigil-managed")
+
+        token = AuthService.generate_jwt_token(_FakeUser(), "access")
+        decoded = AuthService.verify_jwt_token(token)
+
+        assert decoded is not None
+        assert decoded["iss"] == "https://issuer.vigil.test"
+        assert decoded["aud"] == "vigil-managed"
+
+        monkeypatch.setenv("VIGIL_AUTH_AUDIENCE", "another-service")
+        assert AuthService.verify_jwt_token(token) is None
+
+    def test_managed_token_generation_fails_without_trust_claims(self, monkeypatch):
+        monkeypatch.setenv("VIGIL_EXECUTION_PROFILE", "managed")
+        monkeypatch.delenv("VIGIL_AUTH_ISSUER", raising=False)
+        monkeypatch.delenv("VIGIL_AUTH_AUDIENCE", raising=False)
+
+        with pytest.raises(RuntimeError, match="issuer and audience"):
+            AuthService.generate_jwt_token(_FakeUser(), "access")
+
 
 # ----- Password history helper -----
 

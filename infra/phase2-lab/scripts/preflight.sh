@@ -8,4 +8,4 @@ docker info >/dev/null
 if [[ "$(kubectl config current-context 2>/dev/null || true)" == "kind-kind" ]]; then
   echo "current context is kind-kind; provisioning will create and use kind-vigil-phase2" >&2
 fi
-echo "phase2 lab prerequisites are available"
+echo "phase2 qualification prerequisites are available"

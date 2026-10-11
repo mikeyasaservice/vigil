@@ -66,6 +66,7 @@ bcrypt>=5.0.0
 pyjwt>=2.13.0
 pyotp>=2.9.0
 cryptography>=50.0.2
+rfc8785==0.0.2
 slowapi>=0.1.10
 # Signed URL-safe tokens for password reset (also a Starlette transitive
 # dep; listed explicitly so pip show it and it doesn't quietly disappear).
@@ -119,4 +120,3 @@ opentelemetry-semantic-conventions-ai>=0.5.1
 
 # Password strength (maintained package; same `from zxcvbn import zxcvbn` API)
 zxcvbn>=4.5.0
-

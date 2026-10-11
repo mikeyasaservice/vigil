@@ -1,0 +1,31 @@
+model: triage-dspy-v1
+provider: managed-reasoner
+
+budgets:
+  max_calls: 4
+  max_wall_ms: 300000
+  max_cost_usd: 1.00
+  max_park_ms: 900000
+
+runtime:
+  max_turns: 1
+  result_cap: 8000
+  recall_limit: 1
+
+tools:
+  - id: get_finding
+    kind: remote
+    provides: get_finding
+    description: Read one admitted finding from this tenant's data plane.
+    parameters:
+      type: object
+      additionalProperties: false
+      properties:
+        finding_id:
+          type: string
+      required: [finding_id]
+    max_rows: 1
+    timeout_ms: 15000
+
+approvals: []
+thresholds: {}

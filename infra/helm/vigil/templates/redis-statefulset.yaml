@@ -19,6 +19,9 @@ spec:
         {{- include "vigil.componentLabels" (dict "context" . "component" "redis") | nindent 8 }}
     spec:
       serviceAccountName: {{ include "vigil.serviceAccountName" . }}
+      {{- with .Values.redis.nodeSelector }}
+      nodeSelector: {{- toYaml . | nindent 8 }}
+      {{- end }}
       {{- include "vigil.imagePullSecrets" . | nindent 6 }}
       securityContext:
         fsGroup: 999
@@ -52,6 +55,11 @@ spec:
             periodSeconds: 10
           resources:
             {{- toYaml .Values.redis.resources | nindent 12 }}
+      {{- if not .Values.redis.persistence.enabled }}
+      volumes:
+        - name: data
+          emptyDir: {}
+      {{- end }}
   {{- if .Values.redis.persistence.enabled }}
   volumeClaimTemplates:
     - metadata:

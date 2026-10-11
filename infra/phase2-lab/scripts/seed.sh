@@ -1,18 +1,34 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-: "${LOCALSTACK_ENDPOINT:?set LOCALSTACK_ENDPOINT to the tenant-local endpoint}"
-export AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID:-test}"
-export AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY:-test}"
-export AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION:-us-east-1}"
-if command -v awslocal >/dev/null; then
-  AWS=(awslocal)
-else
-  command -v aws >/dev/null || { echo "aws or awslocal is required for synthetic seed data" >&2; exit 1; }
-  AWS=(aws --endpoint-url "$LOCALSTACK_ENDPOINT")
+context="${KIND_CONTEXT:-kind-vigil-phase2}"
+kubectl_args=(--context "$context")
+if [[ -n "${KUBECONFIG:-}" ]]; then
+  kubectl_args=(--kubeconfig "$KUBECONFIG")
 fi
-"${AWS[@]}" secretsmanager create-secret --name vigil/tenant-a/jira --secret-string '{"token":"synthetic-a"}' >/dev/null
-"${AWS[@]}" secretsmanager create-secret --name vigil/tenant-b/jira --secret-string '{"token":"synthetic-b"}' >/dev/null
-"${AWS[@]}" s3 mb s3://vigil-tenant-a-findings >/dev/null
-"${AWS[@]}" s3 mb s3://vigil-tenant-b-findings >/dev/null
-echo "seeded synthetic tenant A/B secrets and object stores"
+
+for tenant in a b; do
+  namespace="vigil-tenant-$tenant"
+  pod="$(kubectl "${kubectl_args[@]}" -n "$namespace" get pod -l vigil.io/qualification-target=localstack -o jsonpath='{.items[0].metadata.name}')"
+  [[ -n "$pod" ]] || { echo "tenant-$tenant LocalStack pod is missing" >&2; exit 1; }
+  for _ in $(seq 1 120); do
+    if kubectl "${kubectl_args[@]}" -n "$namespace" exec "$pod" -- \
+      curl -fsS http://127.0.0.1:4566/_localstack/health >/dev/null 2>&1; then
+      break
+    fi
+    sleep 2
+  done
+  kubectl "${kubectl_args[@]}" -n "$namespace" exec "$pod" -- \
+    curl -fsS http://127.0.0.1:4566/_localstack/health >/dev/null
+  localstack=(kubectl "${kubectl_args[@]}" -n "$namespace" exec deploy/phase2-localstack -- awslocal)
+  secret="vigil/tenant-$tenant/jira"
+  bucket="vigil-tenant-$tenant-findings"
+  if ! "${localstack[@]}" secretsmanager describe-secret --secret-id "$secret" >/dev/null 2>&1; then
+    "${localstack[@]}" secretsmanager create-secret \
+      --name "$secret" --secret-string "{\"token\":\"synthetic-$tenant\"}" >/dev/null
+  fi
+  if ! "${localstack[@]}" s3api head-bucket --bucket "$bucket" >/dev/null 2>&1; then
+    "${localstack[@]}" s3 mb "s3://$bucket" >/dev/null
+  fi
+  echo "seeded tenant-$tenant LocalStack secret and object store"
+done

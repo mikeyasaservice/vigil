@@ -10,12 +10,36 @@
       "value": "http://localhost:6987"
     },
     {
+      "key": "gatewayUrl",
+      "value": "https://localhost:8443"
+    },
+    {
       "key": "runId",
       "value": "00000000-0000-0000-0000-000000000000"
     },
     {
       "key": "accessToken",
       "value": ""
+    },
+    {
+      "key": "approverToken",
+      "value": ""
+    },
+    {
+      "key": "checkpointId",
+      "value": "checkpoint-managed-test"
+    },
+    {
+      "key": "executionId",
+      "value": "00000000-0000-4000-8000-000000000000"
+    },
+    {
+      "key": "claimToken",
+      "value": "invalid"
+    },
+    {
+      "key": "attestation",
+      "value": "invalid"
     }
   ],
   "item": [
@@ -54,7 +78,10 @@
           "listen": "test",
           "script": {
             "exec": [
-              "pm.test('accepted', () => pm.response.to.have.status(202));"
+              "pm.test('accepted', () => pm.response.to.have.status(202));",
+              "const body = pm.response.json();",
+              "pm.expect(body).to.have.keys('run_id', 'job_id', 'execution_id', 'tenant_id', 'deployment_id');",
+              "pm.collectionVariables.set('runId', body.run_id);"
             ]
           }
         }
@@ -133,6 +160,84 @@
       }
     },
     {
+      "name": "Approve an exact action as a second user",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{approverToken}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"checkpoint_id\": \"{{checkpointId}}\",\n  \"action\": \"findings.read\",\n  \"resource\": \"{{findingId}}\",\n  \"argument_digest\": \"{{argumentDigest}}\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v2/agent-runs/{{runId}}/approve",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v2",
+            "agent-runs",
+            "{{runId}}",
+            "approve"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('distinct authorized approver succeeds', () => pm.response.to.have.status(200));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Resume with the original pinned work",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{accessToken}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/v2/agent-runs/{{runId}}/resume",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v2",
+            "agent-runs",
+            "{{runId}}",
+            "resume"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('signed resume was queued', () => pm.response.to.have.status(202));"
+            ]
+          }
+        }
+      ]
+    },
+    {
       "name": "Gateway claim denial without mTLS",
       "request": {
         "method": "POST",
@@ -144,16 +249,92 @@
         ],
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"envelope\": {},\n  \"worker_key_id\": \"worker-a\",\n  \"capabilities\": [\"findings.read\"]\n}"
+          "raw": "{\n  \"envelope\": {},\n  \"capabilities\": [\"get_finding\"]\n}"
         },
         "url": {
-          "raw": "{{baseUrl}}/v1/claim",
+          "raw": "{{gatewayUrl}}/v1/claim",
           "host": [
-            "{{baseUrl}}"
+            "{{gatewayUrl}}"
           ],
           "path": [
             "v1",
             "claim"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('refuses missing mTLS identity', () => pm.expect(pm.response.code).to.be.oneOf([401, 403, 503]));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Gateway grant denial without mTLS",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"execution_id\": \"00000000-0000-4000-8000-000000000000\",\n  \"tenant_id\": \"tenant-a\",\n  \"deployment_id\": \"deployment-a\",\n  \"claim_token\": \"invented\",\n  \"attestation\": \"invented\",\n  \"tool\": \"get_finding\",\n  \"args\": {\n    \"finding_id\": \"finding-a-1\"\n  },\n  \"max_rows\": 1,\n  \"timeout_ms\": 500\n}"
+        },
+        "url": {
+          "raw": "{{gatewayUrl}}/v1/grants",
+          "host": [
+            "{{gatewayUrl}}"
+          ],
+          "path": [
+            "v1",
+            "grants"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('refuses missing mTLS identity', () => pm.expect(pm.response.code).to.be.oneOf([401, 403, 503]));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Gateway authorization denial without mTLS",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "X-Vigil-Invocation-ID",
+            "value": "00000000-0000-0000-0000-000000000001"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"execution_id\": \"00000000-0000-4000-8000-000000000000\",\n  \"tenant_id\": \"tenant-a\",\n  \"deployment_id\": \"deployment-a\",\n  \"claim_token\": \"invented\",\n  \"attestation\": \"invented\",\n  \"tool\": \"get_finding\",\n  \"args\": {\n    \"finding_id\": \"finding-a-1\"\n  },\n  \"max_rows\": 1,\n  \"timeout_ms\": 500,\n  \"grant\": {\n    \"grant_id\": \"00000000-0000-4000-8000-000000000002\",\n    \"execution_id\": \"00000000-0000-4000-8000-000000000000\",\n    \"tenant_id\": \"tenant-a\",\n    \"deployment_id\": \"deployment-a\",\n    \"action\": \"get_finding\",\n    \"resource\": \"finding-a-1\",\n    \"argument_digest\": \"0000000000000000000000000000000000000000000000000000000000000000\",\n    \"approval_digest\": null,\n    \"policy_version\": \"policy-1\",\n    \"revocation_epoch\": 0,\n    \"issued_at\": \"2026-01-01T00:00:00+00:00\",\n    \"expires_at\": \"2026-01-01T00:01:00+00:00\",\n    \"workload_key_id\": \"spiffe://vigil.local/ns/vigil-tenant-a/sa/tenant-a-vigil-agent-worker\",\n    \"claim_jti\": \"invented\",\n    \"max_rows\": 1,\n    \"timeout_ms\": 500,\n    \"signature\": \"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"\n  }\n}"
+        },
+        "url": {
+          "raw": "{{gatewayUrl}}/v1/authorize",
+          "host": [
+            "{{gatewayUrl}}"
+          ],
+          "path": [
+            "v1",
+            "authorize"
           ]
         }
       },
@@ -204,6 +385,45 @@
           "script": {
             "exec": [
               "pm.test('managed profile refuses shared token route', () => pm.expect(pm.response.code).to.be.oneOf([403, 404]));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Gateway decisions denial without mTLS",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"execution_id\": \"{{executionId}}\",\n  \"claim_token\": \"{{claimToken}}\",\n  \"attestation\": \"{{attestation}}\"\n}"
+        },
+        "url": {
+          "raw": "{{gatewayUrl}}/v1/decisions",
+          "host": [
+            "{{gatewayUrl}}"
+          ],
+          "path": [
+            "v1",
+            "decisions"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"unverified workload is denied\", function () {",
+              "  pm.expect(pm.response.code).to.be.oneOf([401, 403, 503]);",
+              "});"
             ]
           }
         }

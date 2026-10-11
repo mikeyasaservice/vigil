@@ -1,0 +1,22 @@
+# Tenant-local DSPy reasoner. This image intentionally excludes the backend,
+# connector catalog, database drivers, and tool execution code.
+FROM python:3.12.12-slim
+
+WORKDIR /app
+
+COPY services/reasoner/requirements.txt services/reasoner/requirements.lock /app/services/reasoner/
+RUN pip install --no-cache-dir -r /app/services/reasoner/requirements.lock
+
+RUN groupadd -g 1000 vigil \
+    && useradd -u 1000 -g 1000 -d /home/vigil -m -s /sbin/nologin vigil
+
+COPY --chown=vigil:vigil core/__init__.py /app/core/__init__.py
+COPY --chown=vigil:vigil core/agents/__init__.py /app/core/agents/__init__.py
+COPY --chown=vigil:vigil core/agents/managed_execution.py /app/core/agents/managed_execution.py
+COPY --chown=vigil:vigil services/reasoner/ /app/services/reasoner/
+
+USER 1000:1000
+ENV HOME=/home/vigil PYTHONPATH=/app PYTHONUNBUFFERED=1
+EXPOSE 8082
+
+CMD ["uvicorn", "services.reasoner.app:app", "--host", "127.0.0.1", "--port", "8082"]
