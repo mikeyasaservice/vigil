@@ -19,7 +19,13 @@ effort and projected support cost. Do not present AWS as a proven market prefere
 Cloud-specific resources stay behind DeploymentAdapter, SecretResolver, object-store,
 key-service and workload-identity interfaces; domain logic uses none of their ARNs.
 
-## AWS reference (design, not provisioned)
+## AWS reference
+
+The first executable local checkpoint is recorded in
+[Phase 5 implementation](phase5-implementation.md). It provisions customer-owned
+resource shapes through LocalStack and exercises local connector authority. It
+does not qualify real AWS IAM, networking, Kubernetes, RDS, backup recovery or
+customer operations.
 
 Customer bootstraps a versioned Pulumi Go program in their account, approves the preview,
 retains encrypted/locked state locally and supplies the tenant/deployment registration.

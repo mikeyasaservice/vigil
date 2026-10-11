@@ -723,6 +723,182 @@
           }
         }
       ]
+    },
+    {
+      "name": "createByocEnrollment",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{operatorToken}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/v1/byoc/enrollments",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "v1",
+            "byoc",
+            "enrollments"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{{createByocEnrollmentBody}}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('response is JSON', () => pm.response.to.be.json);",
+              "pm.test('server did not fail open', () => pm.expect(pm.response.code).to.not.equal(500));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "enrollByocConnector",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/internal/v1/byoc/enroll",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "internal",
+            "v1",
+            "byoc",
+            "enroll"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{{enrollByocConnectorBody}}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('response is JSON', () => pm.response.to.be.json);",
+              "pm.test('server did not fail open', () => pm.expect(pm.response.code).to.not.equal(500));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "submitByocHealth",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/internal/v1/byoc/deployments/{{deploymentId}}/health",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "internal",
+            "v1",
+            "byoc",
+            "deployments",
+            "{{deploymentId}}",
+            "health"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{{submitByocHealthBody}}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('response is JSON', () => pm.response.to.be.json);",
+              "pm.test('server did not fail open', () => pm.expect(pm.response.code).to.not.equal(500));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "revokeByocManagement",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{operatorToken}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/v1/tenants/{{tenantId}}/deployments/{{deploymentId}}/byoc/revoke",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "v1",
+            "tenants",
+            "{{tenantId}}",
+            "deployments",
+            "{{deploymentId}}",
+            "byoc",
+            "revoke"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('response is JSON', () => pm.response.to.be.json);",
+              "pm.test('server did not fail open', () => pm.expect(pm.response.code).to.not.equal(500));"
+            ]
+          }
+        }
+      ]
     }
   ]
 }

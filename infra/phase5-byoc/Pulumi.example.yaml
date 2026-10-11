@@ -1,0 +1,6 @@
+config:
+  vigil-byoc-aws:localstackEndpoint: http://127.0.0.1:4569
+  vigil-byoc-aws:accountId: "111111111111"
+  vigil-byoc-aws:tenantId: tenant-a
+  vigil-byoc-aws:deploymentId: deployment-byoc-a
+  vigil-byoc-aws:ownershipAcknowledgement: customer-owned-account

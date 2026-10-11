@@ -49,6 +49,8 @@ customer demand has not yet been supplied.
    [current Phase 3 validation evidence](phase3-validation.md).
 9. [Phase 4 shared SaaS implementation](phase4-implementation.md) and
    [current Phase 4 validation evidence](phase4-validation.md).
+10. [Phase 5 BYOC implementation](phase5-implementation.md) and
+    [current Phase 5 validation evidence](phase5-validation.md).
 
 ## Validation meaning
 

@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "public_key": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+  "proof": {
+    "schema_version": 1,
+    "enrollment_id": "12345678-1234-4234-8234-123456789abc",
+    "tenant_id": "tenant-a",
+    "deployment_id": "deployment-a",
+    "account_id": "111111111111",
+    "connector_spiffe_id": "spiffe://customer.example/vigil/connector-a",
+    "local_policy_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "proof_signature": "PBYU_CXj-tkZwYHgdLCh0F42Go_WLJjeAF0timjAgNT0ooaR6uz-qANiv1x6JAujsnQwK4a--e2-o10ZIvLXCw==",
+  "health": {
+    "incarnation": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    "sequence": 1,
+    "event_kind": "heartbeat",
+    "occurred_at": "2026-10-11T12:00:00Z",
+    "revocation_epoch": 1,
+    "payload": {
+      "status": "healthy",
+      "observed_generation": 1,
+      "release_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "backlog_count": 0,
+      "dropped_count": 0,
+      "storage_watermark_percent": 20
+    }
+  },
+  "health_signature": "Q0mMD1A4xxJj8sXts6nhyieso6LJ9hbOCLtkeGkhz45udR1bKU863wH8bByl2oqi2yi9jGx9jE13SzxW0p-XBQ=="
+}

@@ -1,0 +1,37 @@
+name: vigil-phase5-byoc
+
+services:
+  management-db:
+    image: postgres:16-alpine
+    ports:
+      - "127.0.0.1:55441:5432"
+    environment:
+      POSTGRES_DB: vigil_management
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: phase5-local-only
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d vigil_management"]
+      interval: 2s
+      timeout: 2s
+      retries: 45
+
+  customer-cloud:
+    image: localstack/localstack:4.8.1
+    ports:
+      - "127.0.0.1:4569:4566"
+    environment:
+      SERVICES: kms,s3,secretsmanager,sqs,sts
+      DEFAULT_REGION: us-east-1
+      MULTI_ACCOUNTS: "1"
+      PERSISTENCE: "1"
+      LS_LOG: warn
+    volumes:
+      - customer-cloud-state:/var/lib/localstack
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:4566/_localstack/health"]
+      interval: 2s
+      timeout: 2s
+      retries: 45
+
+volumes:
+  customer-cloud-state:

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
 import importlib
 import os
 import ssl
@@ -27,11 +29,15 @@ class VerifiedClientTCPServer(TCPServer):
     def __init__(self, app, loop, config, context, state, reader, writer):
         connection_state = dict(state)
         ssl_object = writer.get_extra_info("ssl_object")
-        certificate_der = ssl_object.getpeercert(binary_form=True) if ssl_object is not None else None
+        certificate_der = (
+            ssl_object.getpeercert(binary_form=True) if ssl_object is not None else None
+        )
         if certificate_der:
             certificate = x509.load_der_x509_certificate(certificate_der)
             try:
-                sans = certificate.extensions.get_extension_for_oid(ExtensionOID.SUBJECT_ALTERNATIVE_NAME).value
+                sans = certificate.extensions.get_extension_for_oid(
+                    ExtensionOID.SUBJECT_ALTERNATIVE_NAME
+                ).value
                 identities = [
                     str(uri)
                     for uri in sans.get_values_for_type(x509.UniformResourceIdentifier)
@@ -60,7 +66,7 @@ def configuration() -> Config:
         raise RuntimeError("VIGIL_MANAGEMENT_AUTH_ALGORITHM must be EdDSA or RS256")
     public_key_from_private(required("VIGIL_MANAGEMENT_COMMAND_PRIVATE_KEY"))
     profile = os.getenv("VIGIL_MANAGEMENT_PROFILE", "managed-dedicated")
-    if profile not in {"managed-dedicated", "shared-saas"}:
+    if profile not in {"managed-dedicated", "shared-saas", "byoc-control"}:
         raise RuntimeError("VIGIL_MANAGEMENT_PROFILE is invalid")
     if profile == "shared-saas":
         required("VIGIL_SAAS_AUTH_ISSUER")
@@ -78,6 +84,18 @@ def configuration() -> Config:
             raise RuntimeError("VIGIL_ROUTE_TICKET_PRIVATE_KEY is invalid") from exc
         if not isinstance(route_key, Ed25519PrivateKey):
             raise RuntimeError("VIGIL_ROUTE_TICKET_PRIVATE_KEY must be Ed25519")
+    if profile == "byoc-control":
+        enrollment_secret_value = required("VIGIL_BYOC_ENROLLMENT_SECRET")
+        try:
+            enrollment_secret = base64.b64decode(
+                enrollment_secret_value + "=" * (-len(enrollment_secret_value) % 4),
+                altchars=b"-_",
+                validate=True,
+            )
+        except (ValueError, TypeError, binascii.Error) as exc:
+            raise RuntimeError("VIGIL_BYOC_ENROLLMENT_SECRET is invalid") from exc
+        if len(enrollment_secret) < 32:
+            raise RuntimeError("VIGIL_BYOC_ENROLLMENT_SECRET must contain at least 32 bytes")
 
     config = Config()
     config.bind = [os.getenv("VIGIL_MANAGEMENT_BIND", "0.0.0.0:8443")]

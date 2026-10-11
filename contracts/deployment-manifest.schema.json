@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://vigil.example/contracts/deployment-manifest-v1.json",
-  "title": "Vigil managed dedicated DeploymentManifest",
+  "title": "Vigil managed DeploymentManifest",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -27,7 +27,7 @@
     "incarnation": {"type": "string", "format": "uuid"},
     "generation": {"type": "integer", "minimum": 1},
     "expected_generation": {"type": "integer", "minimum": 0},
-    "mode": {"const": "managed-dedicated"},
+    "mode": {"enum": ["managed-dedicated", "byoc"]},
     "placement": {
       "type": "object",
       "additionalProperties": false,

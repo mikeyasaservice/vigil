@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate the filesystem-local Phase 3 collection from its OpenAPI paths."""
+"""Generate the filesystem-local management collection from its OpenAPI paths."""
 
 from __future__ import annotations
 

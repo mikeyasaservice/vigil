@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import uuid
+from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -94,7 +95,7 @@ class DeploymentManifest(ClosedModel):
     incarnation: uuid.UUID
     generation: int = Field(ge=1)
     expected_generation: int = Field(ge=0)
-    mode: Literal["managed-dedicated"]
+    mode: Literal["managed-dedicated", "byoc"]
     placement: Placement
     releases: ReleaseSet
     isolation: Isolation
@@ -136,7 +137,9 @@ class DeploymentManifest(ClosedModel):
             raise ValueError("deployment references must be trusted local references")
         if not _APPROVED_REF.fullmatch(self.operations.rollback_compatibility_ref):
             raise ValueError("rollback compatibility must be an approved sha256 reference")
-        if len(set(self.credentials.integration_secret_refs)) != len(self.credentials.integration_secret_refs):
+        if len(set(self.credentials.integration_secret_refs)) != len(
+            self.credentials.integration_secret_refs
+        ):
             raise ValueError("integration secret references must be unique")
         return self
 
@@ -259,3 +262,83 @@ class UsageWindowResponse(ClosedModel):
     committed_amount: int
     hard_limit: int
     policy_version: int
+
+
+class BYOCEnrollmentRequest(ClosedModel):
+    tenant_id: str = Field(pattern=r"^[a-z0-9][a-z0-9-]{2,62}$")
+    deployment_id: str = Field(pattern=r"^[a-z0-9][a-z0-9-]{2,62}$")
+    account_id: str = Field(pattern=r"^[0-9]{12}$")
+    connector_spiffe_id: str = Field(pattern=r"^spiffe://[A-Za-z0-9._:/-]{3,240}$")
+    local_policy_digest: str = Field(pattern=r"^[a-f0-9]{64}$")
+    expires_at: datetime
+    idempotency_key: str = Field(min_length=1, max_length=200)
+
+    @model_validator(mode="after")
+    def timezone_required(self):
+        if self.expires_at.tzinfo is None:
+            raise ValueError("enrollment expiry must include a timezone")
+        return self
+
+
+class BYOCEnrollmentResponse(ClosedModel):
+    enrollment_id: uuid.UUID
+    tenant_id: str
+    deployment_id: str
+    account_id: str
+    connector_spiffe_id: str
+    expires_at: str
+    enrollment_token: str
+
+
+class BYOCEnrollRequest(ClosedModel):
+    enrollment_id: uuid.UUID
+    enrollment_token: str = Field(min_length=32, max_length=256)
+    account_id: str = Field(pattern=r"^[0-9]{12}$")
+    local_policy_digest: str = Field(pattern=r"^[a-f0-9]{64}$")
+    connector_public_key: str = Field(min_length=40, max_length=128)
+    proof_signature: str = Field(min_length=40, max_length=256)
+
+
+class BYOCConnectorResponse(ClosedModel):
+    tenant_id: str
+    deployment_id: str
+    account_id: str
+    connector_spiffe_id: str
+    local_policy_digest: str
+    trust_version: int = Field(gt=0)
+    revocation_epoch: int = Field(gt=0)
+    management_enabled: bool
+    last_health_sequence: int = Field(ge=0)
+    last_health_at: str | None = None
+
+
+class BYOCHealthPayload(ClosedModel):
+    status: Literal["healthy", "degraded", "offline", "revoked"]
+    observed_generation: int = Field(ge=0)
+    release_digest: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
+    backlog_count: int = Field(default=0, ge=0)
+    dropped_count: int = Field(default=0, ge=0)
+    storage_watermark_percent: int = Field(default=0, ge=0, le=100)
+
+
+class BYOCHealthEvent(ClosedModel):
+    incarnation: uuid.UUID
+    sequence: int = Field(gt=0)
+    event_kind: Literal["heartbeat", "release", "capacity", "gap", "revocation"]
+    occurred_at: datetime
+    revocation_epoch: int = Field(gt=0)
+    payload: BYOCHealthPayload
+    signature: str = Field(min_length=40, max_length=256)
+
+    @model_validator(mode="after")
+    def timezone_required(self):
+        if self.occurred_at.tzinfo is None:
+            raise ValueError("health occurrence time must include a timezone")
+        return self
+
+
+class BYOCHealthReceipt(ClosedModel):
+    deployment_id: str
+    sequence: int = Field(gt=0)
+    event_digest: str = Field(pattern=r"^[a-f0-9]{64}$")
+    duplicate: bool

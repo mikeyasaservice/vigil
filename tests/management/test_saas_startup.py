@@ -75,3 +75,22 @@ def test_shared_saas_startup_enforces_mutual_tls(monkeypatch: pytest.MonkeyPatch
     configure_saas(monkeypatch, route_key)
     held = configuration()
     assert held.verify_mode == ssl.CERT_REQUIRED
+
+
+def test_byoc_startup_requires_strong_enrollment_authority(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    configure_base(monkeypatch)
+    monkeypatch.setenv("VIGIL_MANAGEMENT_PROFILE", "byoc-control")
+    monkeypatch.setenv(
+        "VIGIL_BYOC_ENROLLMENT_SECRET",
+        base64.urlsafe_b64encode(b"short").decode().rstrip("="),
+    )
+    with pytest.raises(RuntimeError, match="at least 32 bytes"):
+        configuration()
+    monkeypatch.setenv(
+        "VIGIL_BYOC_ENROLLMENT_SECRET",
+        base64.urlsafe_b64encode(b"phase5-enrollment-authority-secret").decode().rstrip("="),
+    )
+    held = configuration()
+    assert held.verify_mode == ssl.CERT_REQUIRED

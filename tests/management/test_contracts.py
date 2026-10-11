@@ -21,6 +21,18 @@ def test_manifest_rejects_weaker_isolation_and_unknown_fields() -> None:
     value["isolation"]["execution"] = "shared-workers"
     with pytest.raises(ValueError):
         DeploymentManifest.model_validate(value)
+
+
+def test_byoc_manifest_keeps_dedicated_runtime_boundaries() -> None:
+    value = json.loads(
+        (ROOT / "docs/architecture/contracts/deployment-manifest.example.json").read_text()
+    )
+    value["mode"] = "byoc"
+    held = DeploymentManifest.model_validate(value)
+    assert held.mode == "byoc"
+    value["isolation"]["database"] = "shared-rows"
+    with pytest.raises(ValueError):
+        DeploymentManifest.model_validate(value)
     value = json.loads((ROOT / "docs/architecture/contracts/deployment-manifest.example.json").read_text())
     value["placement"]["account_id"] = "111111111111"
     with pytest.raises(ValueError):

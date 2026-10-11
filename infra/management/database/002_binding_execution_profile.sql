@@ -16,6 +16,10 @@ ALTER TABLE management_account_bindings
      AND role_arn ~ '^arn:aws:iam::[0-9]{12}:role/[A-Za-z0-9+=,.@_/-]+$')
     OR
     (execution_profile = 'localstack' AND account_id = '000000000000' AND role_arn = '')
+    OR
+    (execution_profile = 'byoc' AND account_id <> '000000000000' AND role_arn = '')
+    OR
+    (execution_profile = 'byoc-localstack' AND account_id ~ '^[0-9]{12}$' AND role_arn = '')
   );
 
 COMMIT;

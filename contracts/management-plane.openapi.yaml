@@ -1,8 +1,8 @@
 openapi: 3.1.0
 info:
   title: Vigil Management Plane API
-  version: 4.0.0
-  description: Durable lifecycle operations plus authenticated shared-SaaS tenant routing, quotas, and aggregate usage.
+  version: 5.0.0
+  description: Durable lifecycle operations, shared-SaaS control metadata, and customer-owned BYOC enrollment and health.
 servers:
   - url: https://management.invalid
 paths:
@@ -192,6 +192,55 @@ paths:
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '409': {$ref: '#/components/responses/Error'}
+  /v1/byoc/enrollments:
+    post:
+      operationId: createByocEnrollment
+      security: [{operatorBearer: []}]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: '#/components/schemas/BYOCEnrollmentRequest'}}}
+      responses:
+        '200': {description: One-use retry-stable enrollment material, content: {application/json: {schema: {$ref: '#/components/schemas/BYOCEnrollmentResponse'}}}}
+        '403': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
+        '503': {$ref: '#/components/responses/Error'}
+  /internal/v1/byoc/enroll:
+    post:
+      operationId: enrollByocConnector
+      security: [{byocConnectorWorkload: []}]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: '#/components/schemas/BYOCEnrollRequest'}}}
+      responses:
+        '200': {description: Durable customer connector binding, content: {application/json: {schema: {$ref: '#/components/schemas/BYOCConnector'}}}}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+  /internal/v1/byoc/deployments/{deployment_id}/health:
+    post:
+      operationId: submitByocHealth
+      security: [{byocConnectorWorkload: []}]
+      parameters: [{$ref: '#/components/parameters/DeploymentId'}]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: '#/components/schemas/BYOCHealthEvent'}}}
+      responses:
+        '200': {description: Idempotent health acknowledgement, content: {application/json: {schema: {$ref: '#/components/schemas/BYOCHealthReceipt'}}}}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+  /v1/tenants/{tenant_id}/deployments/{deployment_id}/byoc/revoke:
+    post:
+      operationId: revokeByocManagement
+      security: [{operatorBearer: []}]
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/DeploymentId'
+      responses:
+        '200': {description: Revoked customer connector binding, content: {application/json: {schema: {$ref: '#/components/schemas/BYOCConnector'}}}}
+        '403': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
 components:
   securitySchemes:
     operatorBearer: {type: http, scheme: bearer, bearerFormat: JWT}
@@ -206,6 +255,9 @@ components:
     dataPlaneWorkload:
       type: mutualTLS
       description: The verified client SPIFFE URI must match the active deployment binding.
+    byocConnectorWorkload:
+      type: mutualTLS
+      description: A verified customer connector certificate plus its locally held Ed25519 key are both required.
   parameters:
     DeploymentId: {name: deployment_id, in: path, required: true, schema: {type: string}}
     TenantId: {name: tenant_id, in: path, required: true, schema: {type: string, pattern: '^[a-z0-9][a-z0-9-]{2,62}$'}}
@@ -227,7 +279,7 @@ components:
         operation_kind: {type: string, enum: [provision, configure, upgrade, rollback]}
         manifest: {$ref: '#/components/schemas/DeploymentManifest'}
     DeploymentManifest:
-      title: Vigil managed dedicated DeploymentManifest
+      title: Vigil managed DeploymentManifest
       type: object
       additionalProperties: false
       required:
@@ -264,7 +316,7 @@ components:
           type: integer
           minimum: 0
         mode:
-          const: managed-dedicated
+          enum: [managed-dedicated, byoc]
         placement:
           type: object
           additionalProperties: false
@@ -579,6 +631,87 @@ components:
         committed_amount: {type: integer, minimum: 0}
         hard_limit: {type: integer, minimum: 1}
         policy_version: {type: integer, minimum: 1}
+    BYOCEnrollmentRequest:
+      type: object
+      additionalProperties: false
+      required: [tenant_id, deployment_id, account_id, connector_spiffe_id, local_policy_digest, expires_at, idempotency_key]
+      properties:
+        tenant_id: {type: string, pattern: '^[a-z0-9][a-z0-9-]{2,62}$'}
+        deployment_id: {type: string, pattern: '^[a-z0-9][a-z0-9-]{2,62}$'}
+        account_id: {type: string, pattern: '^[0-9]{12}$'}
+        connector_spiffe_id: {type: string, pattern: '^spiffe://[A-Za-z0-9._:/-]{3,240}$'}
+        local_policy_digest: {$ref: '#/components/schemas/Sha256'}
+        expires_at: {type: string, format: date-time}
+        idempotency_key: {type: string, minLength: 1, maxLength: 200}
+    BYOCEnrollmentResponse:
+      type: object
+      additionalProperties: false
+      required: [enrollment_id, tenant_id, deployment_id, account_id, connector_spiffe_id, expires_at, enrollment_token]
+      properties:
+        enrollment_id: {type: string, format: uuid}
+        tenant_id: {type: string}
+        deployment_id: {type: string}
+        account_id: {type: string}
+        connector_spiffe_id: {type: string}
+        expires_at: {type: string, format: date-time}
+        enrollment_token: {type: string, minLength: 32}
+    BYOCEnrollRequest:
+      type: object
+      additionalProperties: false
+      required: [enrollment_id, enrollment_token, account_id, local_policy_digest, connector_public_key, proof_signature]
+      properties:
+        enrollment_id: {type: string, format: uuid}
+        enrollment_token: {type: string, minLength: 32, maxLength: 256}
+        account_id: {type: string, pattern: '^[0-9]{12}$'}
+        local_policy_digest: {$ref: '#/components/schemas/Sha256'}
+        connector_public_key: {type: string, minLength: 40, maxLength: 128}
+        proof_signature: {type: string, minLength: 40, maxLength: 256}
+    BYOCConnector:
+      type: object
+      additionalProperties: false
+      required: [tenant_id, deployment_id, account_id, connector_spiffe_id, local_policy_digest, trust_version, revocation_epoch, management_enabled, last_health_sequence]
+      properties:
+        tenant_id: {type: string}
+        deployment_id: {type: string}
+        account_id: {type: string}
+        connector_spiffe_id: {type: string}
+        local_policy_digest: {$ref: '#/components/schemas/Sha256'}
+        trust_version: {type: integer, minimum: 1}
+        revocation_epoch: {type: integer, minimum: 1}
+        management_enabled: {type: boolean}
+        last_health_sequence: {type: integer, minimum: 0}
+        last_health_at: {type: [string, 'null'], format: date-time}
+    BYOCHealthEvent:
+      type: object
+      additionalProperties: false
+      required: [incarnation, sequence, event_kind, occurred_at, revocation_epoch, payload, signature]
+      properties:
+        incarnation: {type: string, format: uuid}
+        sequence: {type: integer, minimum: 1}
+        event_kind: {type: string, enum: [heartbeat, release, capacity, gap, revocation]}
+        occurred_at: {type: string, format: date-time}
+        revocation_epoch: {type: integer, minimum: 1}
+        payload:
+          type: object
+          additionalProperties: false
+          required: [status, observed_generation]
+          properties:
+            status: {type: string, enum: [healthy, degraded, offline, revoked]}
+            observed_generation: {type: integer, minimum: 0}
+            release_digest: {anyOf: [{$ref: '#/components/schemas/Sha256'}, {type: 'null'}]}
+            backlog_count: {type: integer, minimum: 0, default: 0}
+            dropped_count: {type: integer, minimum: 0, default: 0}
+            storage_watermark_percent: {type: integer, minimum: 0, maximum: 100, default: 0}
+        signature: {type: string, minLength: 40, maxLength: 256}
+    BYOCHealthReceipt:
+      type: object
+      additionalProperties: false
+      required: [deployment_id, sequence, event_digest, duplicate]
+      properties:
+        deployment_id: {type: string}
+        sequence: {type: integer, minimum: 1}
+        event_digest: {$ref: '#/components/schemas/Sha256'}
+        duplicate: {type: boolean}
     QuotaDimension:
       type: string
       enum: [api_requests, agent_runs, model_tokens, tool_calls, ingest_bytes, stored_bytes]

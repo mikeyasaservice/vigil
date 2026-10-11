@@ -7,8 +7,15 @@ from cryptography import x509
 from cryptography.x509.oid import ExtensionOID
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from services.management.auth import OperatorIdentity, current_operator
+from services.management.byoc import enrollment_material
 from services.management.commands import issue_reconcile_command
 from services.management.contracts import (
+    BYOCConnectorResponse,
+    BYOCEnrollmentRequest,
+    BYOCEnrollmentResponse,
+    BYOCEnrollRequest,
+    BYOCHealthEvent,
+    BYOCHealthReceipt,
     OperationApproval,
     OperationFailure,
     OperationReceipt,
@@ -32,7 +39,7 @@ from services.management.store import (
     ManagementUnavailable,
 )
 
-app = FastAPI(title="Vigil management plane", version="4.0.0")
+app = FastAPI(title="Vigil management plane", version="5.0.0")
 
 
 def _store() -> ManagementStore:
@@ -45,8 +52,14 @@ def _error(exc: Exception) -> HTTPException:
     if isinstance(exc, ManagementConflict):
         return HTTPException(status_code=409, detail={"code": exc.code, "message": str(exc)})
     if isinstance(exc, (ManagementUnavailable, RuntimeError)):
-        return HTTPException(status_code=503, detail={"code": getattr(exc, "code", "management_unavailable"), "message": str(exc)})
-    return HTTPException(status_code=422, detail={"code": getattr(exc, "code", "management_invalid"), "message": str(exc)})
+        return HTTPException(
+            status_code=503,
+            detail={"code": getattr(exc, "code", "management_unavailable"), "message": str(exc)},
+        )
+    return HTTPException(
+        status_code=422,
+        detail={"code": getattr(exc, "code", "management_invalid"), "message": str(exc)},
+    )
 
 
 def _serializable(row: dict) -> dict:
@@ -67,19 +80,27 @@ def _reconciler_identity(request: Request) -> str:
     tls = request.scope.get("extensions", {}).get("tls", {})
     chain = tls.get("client_cert_chain", ())
     if not chain:
-        raise HTTPException(status_code=401, detail="verified reconciler client certificate required")
+        raise HTTPException(
+            status_code=401, detail="verified reconciler client certificate required"
+        )
     try:
         certificate = x509.load_pem_x509_certificate(chain[0].encode())
-        sans = certificate.extensions.get_extension_for_oid(ExtensionOID.SUBJECT_ALTERNATIVE_NAME).value
+        sans = certificate.extensions.get_extension_for_oid(
+            ExtensionOID.SUBJECT_ALTERNATIVE_NAME
+        ).value
         identities = [
             str(uri)
             for uri in sans.get_values_for_type(x509.UniformResourceIdentifier)
             if str(uri).startswith("spiffe://")
         ]
     except (ValueError, x509.ExtensionNotFound) as exc:
-        raise HTTPException(status_code=401, detail="reconciler client certificate identity is invalid") from exc
+        raise HTTPException(
+            status_code=401, detail="reconciler client certificate identity is invalid"
+        ) from exc
     if len(identities) != 1:
-        raise HTTPException(status_code=401, detail="reconciler client certificate must contain one SPIFFE URI")
+        raise HTTPException(
+            status_code=401, detail="reconciler client certificate must contain one SPIFFE URI"
+        )
     return identities[0]
 
 
@@ -106,9 +127,19 @@ def request_operation(
     actor: OperatorIdentity = Depends(current_operator),
 ) -> dict:
     if deployment_id != body.manifest.deployment_id:
-        raise HTTPException(status_code=409, detail={"code": "management_conflict", "message": "path deployment does not match manifest"})
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "management_conflict",
+                "message": "path deployment does not match manifest",
+            },
+        )
     try:
-        return _serializable(_store().submit_operation(body.manifest, body.operation_kind, idempotency_key or "", actor))
+        return _serializable(
+            _store().submit_operation(
+                body.manifest, body.operation_kind, idempotency_key or "", actor
+            )
+        )
     except (ManagementError, ManagementUnavailable) as exc:
         raise _error(exc) from exc
 
@@ -143,14 +174,18 @@ def approve_operation(
 ) -> dict:
     try:
         expiry = datetime.fromisoformat(body.expires_at.replace("Z", "+00:00"))
-        row = _store().approve_operation(operation_id, actor, body.manifest_digest, body.plan_hash, expiry)
+        row = _store().approve_operation(
+            operation_id, actor, body.manifest_digest, body.plan_hash, expiry
+        )
         return _serializable(row)
     except (ValueError, ManagementError, ManagementUnavailable) as exc:
         raise _error(exc) from exc
 
 
 @app.post("/v1/operations/{operation_id}/cancel")
-def cancel_operation(operation_id: str, actor: OperatorIdentity = Depends(current_operator)) -> dict:
+def cancel_operation(
+    operation_id: str, actor: OperatorIdentity = Depends(current_operator)
+) -> dict:
     try:
         return _serializable(_store().cancel_operation(operation_id, actor))
     except (ManagementError, ManagementUnavailable) as exc:
@@ -165,7 +200,9 @@ def claim_reconcile(
 ) -> dict:
     workload = _reconciler_identity(request)
     try:
-        operation, manifest = _store().claim_reconcile(operation_id, workload, body.runner_id, body.phase)
+        operation, manifest = _store().claim_reconcile(
+            operation_id, workload, body.runner_id, body.phase
+        )
         signed = issue_reconcile_command(operation, manifest, body.phase)
         return {**signed, "manifest": manifest}
     except (ManagementError, ManagementUnavailable, RuntimeError) as exc:
@@ -231,7 +268,9 @@ def complete_operation(
     workload = _reconciler_identity(request)
     try:
         receipt = body.model_dump(mode="json")
-        return _serializable(_store().complete_operation(operation_id, workload, runner_id, receipt))
+        return _serializable(
+            _store().complete_operation(operation_id, workload, runner_id, receipt)
+        )
     except (ManagementError, ManagementUnavailable) as exc:
         raise _error(exc) from exc
 
@@ -263,7 +302,9 @@ def create_saas_route(tenant_id: str, actor: CustomerIdentity = Depends(current_
 
 
 @app.get("/v1/saas/tenants/{tenant_id}/usage", response_model=list[UsageWindowResponse])
-def get_saas_usage(tenant_id: str, actor: CustomerIdentity = Depends(current_customer)) -> list[dict]:
+def get_saas_usage(
+    tenant_id: str, actor: CustomerIdentity = Depends(current_customer)
+) -> list[dict]:
     try:
         return [_serializable(row) for row in _store().list_usage(tenant_id, actor)]
     except (ManagementError, ManagementUnavailable) as exc:
@@ -310,5 +351,66 @@ def commit_saas_quota(
             body.actual_amount,
         )
         return _serializable(row)
+    except (ManagementError, ManagementUnavailable) as exc:
+        raise _error(exc) from exc
+
+
+@app.post("/v1/byoc/enrollments", response_model=BYOCEnrollmentResponse)
+def create_byoc_enrollment(
+    body: BYOCEnrollmentRequest,
+    actor: OperatorIdentity = Depends(current_operator),
+) -> dict:
+    try:
+        enrollment_id, token, token_digest = enrollment_material(body, actor)
+        row = _store().create_byoc_enrollment(body, actor, enrollment_id, token_digest)
+        response = _serializable(row)
+        response["enrollment_token"] = token
+        return response
+    except (ManagementError, ManagementUnavailable, RuntimeError) as exc:
+        raise _error(exc) from exc
+
+
+@app.post("/internal/v1/byoc/enroll", response_model=BYOCConnectorResponse)
+def enroll_byoc_connector(body: BYOCEnrollRequest, request: Request) -> dict:
+    workload = _reconciler_identity(request)
+    try:
+        return _serializable(
+            _store().enroll_byoc_connector(
+                str(body.enrollment_id),
+                body.enrollment_token,
+                body.account_id,
+                body.local_policy_digest,
+                body.connector_public_key,
+                body.proof_signature,
+                workload,
+            )
+        )
+    except (ManagementError, ManagementUnavailable) as exc:
+        raise _error(exc) from exc
+
+
+@app.post(
+    "/internal/v1/byoc/deployments/{deployment_id}/health",
+    response_model=BYOCHealthReceipt,
+)
+def submit_byoc_health(deployment_id: str, body: BYOCHealthEvent, request: Request) -> dict:
+    workload = _reconciler_identity(request)
+    try:
+        return _store().record_byoc_health(deployment_id, workload, body)
+    except (ManagementError, ManagementUnavailable) as exc:
+        raise _error(exc) from exc
+
+
+@app.post(
+    "/v1/tenants/{tenant_id}/deployments/{deployment_id}/byoc/revoke",
+    response_model=BYOCConnectorResponse,
+)
+def revoke_byoc_management(
+    tenant_id: str,
+    deployment_id: str,
+    actor: OperatorIdentity = Depends(current_operator),
+) -> dict:
+    try:
+        return _serializable(_store().revoke_byoc_management(tenant_id, deployment_id, actor))
     except (ManagementError, ManagementUnavailable) as exc:
         raise _error(exc) from exc
