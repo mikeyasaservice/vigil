@@ -27,8 +27,10 @@ CREATE TABLE IF NOT EXISTS management_account_bindings (
     tenant_id TEXT NOT NULL REFERENCES management_tenants(tenant_id),
     deployment_id TEXT NOT NULL,
     provider TEXT NOT NULL CHECK (provider = 'aws'),
+    execution_profile TEXT NOT NULL DEFAULT 'aws'
+      CHECK (execution_profile IN ('aws', 'localstack')),
     account_id TEXT NOT NULL CHECK (account_id ~ '^[0-9]{12}$'),
-    role_arn TEXT NOT NULL CHECK (role_arn ~ '^arn:aws:iam::[0-9]{12}:role/[A-Za-z0-9+=,.@_/-]+$'),
+    role_arn TEXT NOT NULL,
     region TEXT NOT NULL,
     network_binding_ref TEXT NOT NULL CHECK (network_binding_ref LIKE 'local:%'),
     state_binding_ref TEXT NOT NULL CHECK (state_binding_ref LIKE 'local:%'),
@@ -38,6 +40,12 @@ CREATE TABLE IF NOT EXISTS management_account_bindings (
     receipt_public_key TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'revoked')),
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CHECK (
+      (execution_profile = 'aws' AND account_id <> '000000000000'
+       AND role_arn ~ '^arn:aws:iam::[0-9]{12}:role/[A-Za-z0-9+=,.@_/-]+$')
+      OR
+      (execution_profile = 'localstack' AND account_id = '000000000000' AND role_arn = '')
+    ),
     UNIQUE (tenant_id, deployment_id),
     UNIQUE (account_id, deployment_id)
 );

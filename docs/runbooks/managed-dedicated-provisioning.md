@@ -42,6 +42,27 @@ data or claim AWS qualification.
    requires client certificates at TLS and fails startup when required configuration is
    absent.
 
+## LocalStack development profile
+
+Use the LocalStack profile for executable development and pull-request evidence before
+requesting any AWS account access:
+
+```sh
+./infra/phase3-aws/localstack/qualify.sh managed
+./infra/phase3-aws/localstack/qualify.sh down
+```
+
+The harness owns only the `vigil-phase3-localstack` compose project and its state under
+`/tmp/vigil-phase3-localstack` by default. It starts separate A/B emulator processes,
+uses synthetic credentials, creates distinct file-backed Pulumi state and staged source
+workspaces, generates short-lived CA/JWT/command/receipt trust material, and runs the
+durable two-person management lifecycle plus positive controls before negative controls. Set
+`PHASE3_LOCALSTACK_WORK_ROOT` to relocate the transient work root.
+
+Do not copy a LocalStack binding into production. Its loopback endpoint, synthetic
+account, passphrase provider and file backend are rejected by the `aws` execution
+profile and provide no AWS qualification evidence.
+
 ## Provision
 
 1. Validate the manifest against `contracts/deployment-manifest.schema.json` and the

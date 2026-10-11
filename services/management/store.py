@@ -89,7 +89,13 @@ class ManagementStore:
             SELECT * FROM management_account_bindings
              WHERE binding_ref = %(binding)s AND tenant_id = %(tenant)s
                AND deployment_id = %(deployment)s AND provider = 'aws'
-               AND account_id = substring(role_arn from 'arn:aws:iam::([0-9]{12}):role/')
+               AND (
+                 (execution_profile = 'aws'
+                  AND account_id = substring(role_arn from 'arn:aws:iam::([0-9]{12}):role/'))
+                 OR
+                 (execution_profile = 'localstack'
+                  AND account_id = '000000000000' AND role_arn = '')
+               )
                AND region = %(region)s
                AND network_binding_ref = %(network)s
                AND state_binding_ref = %(state)s

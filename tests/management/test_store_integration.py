@@ -37,6 +37,7 @@ def management_state() -> tuple[ManagementStore, DeploymentManifest, OperatorIde
     connection.autocommit = True
     with connection.cursor() as cursor:
         cursor.execute((ROOT / "infra/management/database/001_management_plane.sql").read_text())
+        cursor.execute((ROOT / "infra/management/database/002_binding_execution_profile.sql").read_text())
         cursor.execute(
             "TRUNCATE management_outbox, management_operation_receipts, management_operation_events, "
             "management_operation_approvals, management_operations, management_deployments, "

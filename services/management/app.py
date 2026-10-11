@@ -47,7 +47,7 @@ def _serializable(row: dict) -> dict:
 
 
 def _reconciler_identity(request: Request) -> str:
-    scoped = request.scope.get("vigil.verified_spiffe_id")
+    scoped = request.scope.get("state", {}).get("vigil.verified_spiffe_id")
     if isinstance(scoped, str) and scoped:
         return scoped
     tls = request.scope.get("extensions", {}).get("tls", {})

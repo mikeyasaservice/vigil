@@ -63,7 +63,8 @@ func validManifestAndBinding() (Manifest, Binding) {
 	manifest.Operations.SupportPolicyRef = "local:support"
 	manifest.Operations.ApprovalRef = "local:approval"
 	binding := Binding{
-		BindingRef: "local:account-a", TenantID: "tenant-a", DeploymentID: "deployment-a",
+		ExecutionProfile: "aws",
+		BindingRef:       "local:account-a", TenantID: "tenant-a", DeploymentID: "deployment-a",
 		AccountID: "111111111111", RoleARN: "arn:aws:iam::111111111111:role/VigilProvisioner",
 		ExternalID: "external-a", Region: "us-east-1", NetworkBindingRef: "local:network-a",
 		StateBindingRef: "local:state-a", StateBackendURL: "s3://vigil-pulumi-state-a",
@@ -78,6 +79,34 @@ func validManifestAndBinding() (Manifest, Binding) {
 		PrivateSubnetCIDRs: []string{"10.64.16.0/20", "10.64.32.0/20"},
 	}
 	return manifest, binding
+}
+
+func TestValidateAcceptsBoundLocalStackProfile(t *testing.T) {
+	manifest, binding := validManifestAndBinding()
+	binding.ExecutionProfile = "localstack"
+	binding.LocalStackEndpoint = "http://127.0.0.1:4566"
+	binding.AccountID = "000000000000"
+	binding.RoleARN = ""
+	binding.ExternalID = ""
+	binding.StateBackendURL = "file:///tmp/vigil-state-a"
+	binding.SecretsProvider = "passphrase"
+	if err := Validate(manifest, binding); err != nil {
+		t.Fatalf("LocalStack positive control failed: %v", err)
+	}
+}
+
+func TestValidateRejectsUntrustedLocalStackEndpoint(t *testing.T) {
+	manifest, binding := validManifestAndBinding()
+	binding.ExecutionProfile = "localstack"
+	binding.LocalStackEndpoint = "http://localstack.example:4566"
+	binding.AccountID = "000000000000"
+	binding.RoleARN = ""
+	binding.ExternalID = ""
+	binding.StateBackendURL = "file:///tmp/vigil-state-a"
+	binding.SecretsProvider = "passphrase"
+	if err := Validate(manifest, binding); err == nil {
+		t.Fatal("non-loopback LocalStack endpoint was accepted")
+	}
 }
 
 func TestValidateRejectsCrossTenantAndCrossAccountSubstitution(t *testing.T) {

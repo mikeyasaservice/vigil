@@ -21,26 +21,35 @@ func main() {
 			return err
 		}
 
-		provider, err := aws.NewProvider(ctx, "tenant-aws", &aws.ProviderArgs{
-			Region:            pulumi.String(binding.Region),
-			AllowedAccountIds: pulumi.StringArray{pulumi.String(binding.AccountID)},
-			AssumeRoles: aws.ProviderAssumeRoleArray{aws.ProviderAssumeRoleArgs{
-				RoleArn:     pulumi.String(binding.RoleARN),
-				ExternalId:  pulumi.ToSecret(pulumi.String(binding.ExternalID)).(pulumi.StringOutput).ToStringPtrOutput(),
-				SessionName: pulumi.String(fmt.Sprintf("vigil-%s", manifest.DeploymentID)), SourceIdentity: pulumi.String(manifest.DeploymentID),
-			}},
+		providerArgs := &aws.ProviderArgs{
+			Region: pulumi.String(binding.Region),
 			DefaultTags: &aws.ProviderDefaultTagsArgs{Tags: pulumi.StringMap{
 				"vigil.io/tenant": pulumi.String(manifest.TenantID), "vigil.io/deployment": pulumi.String(manifest.DeploymentID),
 				"vigil.io/incarnation": pulumi.String(manifest.Incarnation), "vigil.io/managed": pulumi.String("true"),
 			}},
-		})
-		if err != nil {
-			return err
 		}
-
-		deployment, err := tenant.NewDeployment(ctx, "vigil-"+manifest.DeploymentID, tenant.DeploymentArgs{
-			Manifest: manifest, Binding: binding, Provider: provider,
-		}, pulumi.Provider(provider))
+		if binding.ExecutionProfile == "localstack" {
+			endpoint := pulumi.String(binding.LocalStackEndpoint)
+			providerArgs.AccessKey = pulumi.String("test")
+			providerArgs.SecretKey = pulumi.String("test")
+			providerArgs.S3UsePathStyle = pulumi.Bool(true)
+			providerArgs.SkipCredentialsValidation = pulumi.Bool(true)
+			providerArgs.SkipMetadataApiCheck = pulumi.Bool(true)
+			providerArgs.SkipRegionValidation = pulumi.Bool(true)
+			providerArgs.SkipRequestingAccountId = pulumi.Bool(true)
+			providerArgs.SharedConfigFiles = pulumi.StringArray{}
+			providerArgs.SharedCredentialsFiles = pulumi.StringArray{}
+			providerArgs.Endpoints = aws.ProviderEndpointArray{aws.ProviderEndpointArgs{
+				Ec2: endpoint, Kms: endpoint, S3: endpoint, Secretsmanager: endpoint, Sqs: endpoint, Sts: endpoint,
+			}}
+		} else {
+			providerArgs.AllowedAccountIds = pulumi.StringArray{pulumi.String(binding.AccountID)}
+			providerArgs.AssumeRoles = aws.ProviderAssumeRoleArray{aws.ProviderAssumeRoleArgs{
+				RoleArn: pulumi.String(binding.RoleARN), ExternalId: pulumi.ToSecret(pulumi.String(binding.ExternalID)).(pulumi.StringOutput).ToStringPtrOutput(),
+				SessionName: pulumi.String(fmt.Sprintf("vigil-%s", manifest.DeploymentID)), SourceIdentity: pulumi.String(manifest.DeploymentID),
+			}}
+		}
+		provider, err := aws.NewProvider(ctx, "tenant-aws", providerArgs)
 		if err != nil {
 			return err
 		}
@@ -49,6 +58,25 @@ func main() {
 		ctx.Export("tenantId", pulumi.String(manifest.TenantID))
 		ctx.Export("deploymentId", pulumi.String(manifest.DeploymentID))
 		ctx.Export("generation", pulumi.Int(int(manifest.Generation)))
+		ctx.Export("executionProfile", pulumi.String(binding.ExecutionProfile))
+		if binding.ExecutionProfile == "localstack" {
+			deployment, createErr := tenant.NewLocalStackDeployment(ctx, "vigil-"+manifest.DeploymentID, tenant.DeploymentArgs{
+				Manifest: manifest, Binding: binding, Provider: provider,
+			}, pulumi.Provider(provider))
+			if createErr != nil {
+				return createErr
+			}
+			ctx.Export("vpcId", deployment.VpcID)
+			ctx.Export("evidenceBucket", deployment.EvidenceBucket)
+			ctx.Export("keyArn", deployment.KeyARN)
+			ctx.Export("queueUrl", deployment.QueueURL)
+			ctx.Export("runtimeSecretArn", deployment.RuntimeSecretARN)
+			return nil
+		}
+		deployment, err := tenant.NewDeployment(ctx, "vigil-"+manifest.DeploymentID, tenant.DeploymentArgs{Manifest: manifest, Binding: binding, Provider: provider}, pulumi.Provider(provider))
+		if err != nil {
+			return err
+		}
 		ctx.Export("vpcId", deployment.VpcID)
 		ctx.Export("clusterName", deployment.ClusterName)
 		ctx.Export("databaseIdentifier", deployment.DatabaseIdentifier)

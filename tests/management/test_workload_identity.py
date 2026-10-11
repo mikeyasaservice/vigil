@@ -40,6 +40,12 @@ def test_reconciler_identity_comes_from_tls_client_certificate() -> None:
     assert _reconciler_identity(request) == identity
 
 
+def test_reconciler_identity_comes_from_server_owned_connection_state() -> None:
+    identity = "spiffe://vigil.io/management/reconciler-a"
+    request = request_with_scope({"state": {"vigil.verified_spiffe_id": identity}})
+    assert _reconciler_identity(request) == identity
+
+
 def test_headers_without_tls_certificate_cannot_authenticate_reconciler() -> None:
     request = Request(
         {

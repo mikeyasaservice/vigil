@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/netip"
+	"net/url"
 	"os"
 	"regexp"
 
@@ -101,6 +102,8 @@ type Manifest struct {
 }
 
 type Binding struct {
+	ExecutionProfile           string   `json:"execution_profile"`
+	LocalStackEndpoint         string   `json:"localstack_endpoint"`
 	BindingRef                 string   `json:"binding_ref"`
 	TenantID                   string   `json:"tenant_id"`
 	DeploymentID               string   `json:"deployment_id"`
@@ -193,8 +196,26 @@ func Validate(m Manifest, b Binding) error {
 		m.Placement.NetworkBindingRef != b.NetworkBindingRef || m.Placement.StateBindingRef != b.StateBindingRef {
 		return fmt.Errorf("manifest target does not match the trusted binding")
 	}
-	if !accountID.MatchString(b.AccountID) || b.RoleARN == "" || b.ExternalID == "" {
-		return fmt.Errorf("trusted AWS binding is incomplete")
+	if !accountID.MatchString(b.AccountID) {
+		return fmt.Errorf("trusted AWS binding has an invalid account ID")
+	}
+	switch b.ExecutionProfile {
+	case "aws":
+		if b.RoleARN == "" || b.ExternalID == "" || b.LocalStackEndpoint != "" {
+			return fmt.Errorf("trusted AWS binding is incomplete")
+		}
+	case "localstack":
+		endpoint, parseErr := url.Parse(b.LocalStackEndpoint)
+		if parseErr != nil || endpoint.Scheme != "http" || endpoint.Path != "" || endpoint.RawQuery != "" || endpoint.Fragment != "" ||
+			(endpoint.Hostname() != "127.0.0.1" && endpoint.Hostname() != "localhost") || endpoint.Port() == "" {
+			return fmt.Errorf("LocalStack endpoint must be an explicit loopback HTTP endpoint")
+		}
+		if b.AccountID != "000000000000" || b.RoleARN != "" || b.ExternalID != "" ||
+			!regexp.MustCompile(`^file:///.+`).MatchString(b.StateBackendURL) || b.SecretsProvider != "passphrase" {
+			return fmt.Errorf("trusted LocalStack binding is incomplete")
+		}
+	default:
+		return fmt.Errorf("unsupported execution profile")
 	}
 	if b.StateBackendURL == "" || b.SecretsProvider == "" || b.PulumiHome == "" ||
 		b.WorkspaceRoot == "" || b.ReceiptPrivateKeyPath == "" || b.InfrastructureSourcePath == "" ||

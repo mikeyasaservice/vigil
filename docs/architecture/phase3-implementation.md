@@ -27,14 +27,15 @@ Current checkpoint state on `codex/phase3-managed-dedicated-mvp`:
 
 | Checkpoint | State | Evidence and remaining work |
 |---|---|---|
-| Contract and durable reconciliation | Implemented locally | Closed manifest/OpenAPI contracts, PostgreSQL operation/outbox/event/approval/receipt state, mTLS workload identity, signed commands, command-specific callbacks, generation fencing and real local PostgreSQL lifecycle test. AWS execution remains unqualified. |
-| Dedicated AWS component | Implemented, not deployed | Explicit account-bound provider; VPC/subnets/NAT, private EKS, dedicated nodes, KMS, Multi-AZ RDS, encrypted HA Redis and private versioned S3. `go test ./...` passes. No account preview or apply has run. |
+| Contract and durable reconciliation | Implemented and executed with LocalStack | Closed manifest/OpenAPI contracts, PostgreSQL operation/outbox/event/approval/receipt state, real mTLS workload identity, signed commands, command-specific callbacks and generation fencing. Two managed A/B operations completed through saved-plan apply and signed receipts. AWS execution remains unqualified. |
+| Dedicated AWS component | Implemented; LocalStack development profile executed | Explicit account-bound production provider; VPC/subnets/NAT, private EKS, dedicated nodes, KMS, Multi-AZ RDS, encrypted HA Redis and private versioned S3. A trusted LocalStack profile exercises isolated VPC/subnet, KMS, S3, Secrets Manager and SQS resources against separate A/B endpoints. No AWS account preview or apply has run. |
 | Release lifecycle | Partial | Immutable release digests and exact Pulumi plan approval are enforced. Helm application installation, compatibility execution, rollout health oracle and rollback drill remain open. |
 | Recovery and offboarding | Designed, not implemented | Procedures and failure states are documented. Backup inventory, quarantine restore, tombstone application and per-store deletion receipts still require implementation and deployed drills. |
-| Qualification | Not run | T01-T17 remain release gates until two real dedicated deployments execute the required positive and negative controls. |
+| Qualification | Development scenarios pass; production not run | LocalStack A/B target binding, real mTLS reconciliation, two-person approval, canaries and cross-target controls pass. T01-T17 remain production release gates until two real dedicated deployments execute the required scenarios. |
 
-The current code is a reviewable infrastructure and reconciliation checkpoint. It is
-not a production launch candidate and must not receive customer data.
+The current code is a reviewable infrastructure and reconciliation checkpoint. The
+LocalStack profile is the required executable development environment. It is not a
+production launch candidate and must not receive customer data.
 
 ## Initial product constraints
 
@@ -60,6 +61,11 @@ two actual dedicated deployments with positive controls and unchanged foreign st
 - **Tenant boundary:** one bound AWS account target, VPC, EKS node group, PostgreSQL
   instance, Redis replication group, evidence bucket, KMS key, Pulumi stack/backend,
   workspace and reconciler identity per deployment.
+- **Development boundary:** LocalStack runs one loopback-only emulator process and one
+  file-backed Pulumi state root per synthetic tenant. The trusted binding selects this
+  profile; manifests cannot supply endpoints or synthetic credentials. This validates
+  target binding and service interactions, not AWS IAM, managed-service, host or
+  recovery behavior.
 - **Identity source:** human authority comes from a configured issuer/audience JWT and
   durable server-side operator scope. Reconciler authority comes from a verified mTLS
   client certificate URI SAN matched to the trusted account binding.

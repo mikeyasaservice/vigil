@@ -1,4 +1,6 @@
 {
+  "execution_profile": "aws",
+  "localstack_endpoint": "",
   "binding_ref": "local:approved-account-binding",
   "tenant_id": "tenant-example-a",
   "deployment_id": "deployment-example-a",
