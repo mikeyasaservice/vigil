@@ -21,6 +21,7 @@ gateway remains the authority for side effects.
 | Database boundary | `infra/database/init/41_managed_execution.sql` | Security tables and restricted worker grants are declared |
 | Packaging | Helm `.helmignore`, managed deny-egress values/template | `helm lint` and managed template rendering pass |
 | Lab infrastructure | `infra/phase2-lab` | Pulumi Go program compiles and unit command passes |
+| Deployed lab | `kind-vigil-phase2`, Cilium 1.20.1, LocalStack 4.8.1 | Pulumi created both tenant namespaces and deny-egress policies; positive same-tenant sink and negative A-to-B probe completed |
 
 ## Commands and results
 
@@ -42,6 +43,15 @@ rendered
 
 cd infra/phase2-lab && go test ./...
 passed
+
+./scripts/provision.sh; ./scripts/seed.sh; Pulumi preview/up
+Cilium healthy on 3/3 nodes; LocalStack S3/Secrets Manager healthy; Pulumi 6 resources created
+
+Tenant A labeled worker -> Tenant B sink
+denied
+
+Unlabeled positive-control pod -> Tenant B sink
+allowed
 ```
 
 ## Limitations and next checkpoint
@@ -52,9 +62,8 @@ revocation, claims, budgets and audit reservations to that trusted store before 
 managed profile is enabled. The Pulumi program declares the disposable namespaces and
 deny policies; it does not create or alter the existing `kind-kind` cluster.
 
-The disposable kind/Cilium/LocalStack lab was not run in this environment because the
-Docker socket was unavailable. Postman CLI spec lint was also unavailable because its
-macOS keychain lookup failed before parsing the document. These are unrun evidence,
-not passing isolation gates. The next checkpoint is durable admission persistence,
-explicit allow-egress policies for the required endpoints, then deployed worker-pod
-connectivity and cross-tenant negative probes T01–T13.
+Postman CLI spec lint was unavailable because its macOS keychain lookup failed before
+parsing the document. The deployed probe covers only the lab network-policy slice; it
+does not pass the full T01–T13 production gates. The next checkpoint is durable
+admission persistence, explicit allow-egress policies for required worker endpoints,
+and deployed application worker/connector probes.

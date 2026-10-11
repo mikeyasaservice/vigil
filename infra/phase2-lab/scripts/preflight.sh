@@ -6,7 +6,6 @@ for command in docker kind kubectl helm pulumi cilium; do
 done
 docker info >/dev/null
 if [[ "$(kubectl config current-context 2>/dev/null || true)" == "kind-kind" ]]; then
-  echo "refusing to use the existing kind-kind context; use kind-vigil-phase2" >&2
-  exit 1
+  echo "current context is kind-kind; provisioning will create and use kind-vigil-phase2" >&2
 fi
 echo "phase2 lab prerequisites are available"

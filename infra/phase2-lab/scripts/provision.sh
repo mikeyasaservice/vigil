@@ -5,6 +5,8 @@ cd "$(dirname "$0")/.."
 if ! kind get clusters | grep -qx vigil-phase2; then
   kind create cluster --config kind-config.yaml
 fi
-cilium install --context kind-vigil-phase2
+if ! cilium status --context kind-vigil-phase2 >/dev/null 2>&1; then
+  cilium install --context kind-vigil-phase2
+fi
 cilium status --wait --context kind-vigil-phase2
 echo "kind-vigil-phase2 is ready; start the isolated LocalStack instance before Pulumi up"

@@ -2,7 +2,7 @@
 
 This Pulumi Go project creates the policy shell for two synthetic tenants. It
 expects a disposable kind cluster with Cilium installed and a LocalStack
-endpoint at `http://127.0.0.1:4566`. It does not create or discover real AWS
+4.8.1 endpoint at `http://127.0.0.1:4567`. It does not create or discover real AWS
 resources.
 
 The lab runner must create a fresh kind cluster named `vigil-phase2`, install
@@ -15,10 +15,10 @@ pulumi stack init phase2-local
 pulumi config set cluster vigil-phase2
 pulumi config set kubeContext kind-vigil-phase2
 pulumi config set --secret kubeconfig "$(cat /path/to/vigil-phase2-kubeconfig)"
-pulumi config set localstackEndpoint http://localstack:4566
+pulumi config set localstackEndpoint http://127.0.0.1:4567
 ./scripts/preview.sh
 ./scripts/provision-pulumi.sh
-LOCALSTACK_ENDPOINT=http://localstack:4566 ./scripts/seed.sh
+LOCALSTACK_ENDPOINT=http://127.0.0.1:4567 ./scripts/seed.sh
 ./scripts/test.sh
 ./scripts/cleanup.sh
 ```
