@@ -1,0 +1,23 @@
+{
+  "commit": "0226200c476913b8bd5dff1df9bb221c6b147186",
+  "git_tree": "47da2ec975b062aa78144cebb71206ce87c3048f",
+  "method": "static source inventory; no application imports or runtime claims",
+  "repository": "https://github.com/mikeyasaservice/vigil",
+  "route_declaration_count": 382,
+  "route_limitations": "Decorators only; prefixes are hints. Runtime mounts, aliases, MCP registration and dynamic routes need deployed inventory. No per-route auth verdict inferred.",
+  "sha256": {
+    ".python-version": "7b55f8e67b5623c4bef3fa691288da9437d79d3aba156de48d481db32ac7d16d",
+    "clients/web/package-lock.json": "d64a096a14ec59bb5487f680f343acbef29b1a770ffed0c292ae356bc7ef87c1",
+    "core/storage/schema.snapshot.json": "a6b42fca306dd155a6bb2c77d62f8ab3b5bae3a4696e48a91d806ef8d5804c8c",
+    "infra/docker/docker-compose.yml": "479b8a0f07b3f00dd765b194c2328e141e7e04caff00664647f6fcebb0f82680",
+    "infra/helm/vigil/Chart.lock": "92276c4bab0e473b43b0e3f5b36cd9de2cd48936f163a595ed64d55f7fdff33b",
+    "infra/helm/vigil/Chart.yaml": "04233b5391714cfc7705f53d2e57f7cbea8d54e497badc53c6cfb8e50d09aee5",
+    "requirements.lock": "53a4b19f5a86f93768e65ff3ee8b18116f1fe14db58c87353422a42faf3840f2",
+    "requirements.txt": "732592b3ff1b43a2bb925351d0a5de5402a41e7e04360c46452940f345b02300",
+    "services/agent/package-lock.json": "4a08532e972406f255488fac55f692714afca0609725781f4ca88f511b0be168",
+    "services/agent/package.json": "97ea44e8b40c9a6cf49c59529d934e949af66e4a4df3f41d3bac25310c5a0c0d",
+    "services/medic/uv.lock": "2276e67e691d71961ffb1e57d1093cbc032c4fe0e410d2ff9422019788c1de7c"
+  },
+  "table_count": 55,
+  "tables_with_tenant_columns": 0
+}

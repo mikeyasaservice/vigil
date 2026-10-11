@@ -1,0 +1,64 @@
+{
+  "contract_version": "managed-soc/v1-draft",
+  "example_only": true,
+  "tenant_id": "tenant-example-a",
+  "deployment_id": "deployment-example-a",
+  "incarnation": "installation-example-1",
+  "generation": 1,
+  "expected_generation": 0,
+  "mode": "managed-dedicated",
+  "placement": {
+    "adapter": "aws-kubernetes",
+    "account_ref": "local:approved-account-binding",
+    "region": "us-east-1",
+    "network_ref": "local:approved-network"
+  },
+  "releases": {
+    "application": {"version": "example-1", "digest_ref": "approved:application-digest"},
+    "harness": {"version": "example-1", "digest_ref": "approved:harness-digest"},
+    "infrastructure": {"version": "example-1", "digest_ref": "approved:module-digest"},
+    "database_schema": "example-schema-1",
+    "policy": {"version": "example-1", "digest_ref": "approved:policy-digest"},
+    "dspy": {
+      "program_id": "triage",
+      "version": "example-1",
+      "digest_ref": "approved:program-digest",
+      "approval_ref": "local:program-approval",
+      "model_config_ref": "local:approved-model-config"
+    }
+  },
+  "isolation": {
+    "application": "dedicated-runtime",
+    "execution": "hardened-container-on-dedicated-tenant-node",
+    "database": "dedicated-instance",
+    "queue_cache": "dedicated-instance"
+  },
+  "storage": {
+    "database_ref": "local:tenant-database",
+    "object_store_ref": "local:tenant-evidence",
+    "memory_ref": "local:tenant-memory",
+    "queue_ref": "local:tenant-queue",
+    "key_ref": "local:tenant-approved-key",
+    "retention_policy_ref": "local:customer-retention-policy"
+  },
+  "credentials": {
+    "integration_secret_refs": ["local:integration-a-credential"],
+    "workload_identity_ref": "local:approved-workload-bindings"
+  },
+  "network": {
+    "ingress_policy_ref": "local:customer-ingress",
+    "egress_policy_ref": "local:customer-egress",
+    "management_transport": "outbound-mtls-https",
+    "artifact_mirror_ref": "local:approved-artifact-mirror"
+  },
+  "operations": {
+    "budget_policy_ref": "local:tenant-budgets",
+    "export_policy_ref": "local:metadata-only",
+    "backup_policy_ref": "local:tenant-backup",
+    "recovery_targets_ref": "local:approved-rpo-rto",
+    "maintenance_policy_ref": "local:customer-maintenance",
+    "support_policy_ref": "local:customer-jit-support",
+    "approval_ref": "local:deployment-plan-approval",
+    "rollback_compatibility_ref": "approved:compatibility-matrix"
+  }
+}
