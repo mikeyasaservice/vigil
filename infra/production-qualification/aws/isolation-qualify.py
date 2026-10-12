@@ -145,8 +145,9 @@ const redis=new Redis(options);
 await redis.set("autobot:qualification:collision",process.env.QUAL_CANARY,"EX",600);
 const value=await redis.get("autobot:qualification:collision");
 const failed=Number(await redis.zcard("{bull}:agent-runs:failed"));
+const completed=Number(await redis.zcard("{bull}:agent-runs:completed"));
 await redis.quit();
-console.log(JSON.stringify({value,failed}));
+console.log(JSON.stringify({value,failed,completed}));
 '''
 
 
@@ -300,6 +301,37 @@ console.log(JSON.stringify({claim_status:claimed.status,grant_status:issued.stat
 '''
 
 
+QUEUE_CONTROL = r'''
+import { Queue } from "bullmq";
+import { redisConfig } from "./dist/core/db.js";
+import { RUN_QUEUE, RUN_QUEUE_PREFIX } from "./dist/contracts/job.js";
+const queue = new Queue(RUN_QUEUE, { connection: redisConfig(), prefix: RUN_QUEUE_PREFIX });
+const action = process.env.QUAL_QUEUE_ACTION;
+if (action === "pause") await queue.pause();
+else if (action === "resume") await queue.resume();
+else throw new Error(`unsupported queue action ${action}`);
+console.log(JSON.stringify({action, paused: await queue.isPaused()}));
+await queue.close();
+'''
+
+
+QUEUE_JOB_STATES = r'''
+import { Queue } from "bullmq";
+import { redisConfig } from "./dist/core/db.js";
+import { RUN_QUEUE, RUN_QUEUE_PREFIX } from "./dist/contracts/job.js";
+const queue = new Queue(RUN_QUEUE, { connection: redisConfig(), prefix: RUN_QUEUE_PREFIX });
+const state = async (id) => {
+  const job = await queue.getJob(id);
+  return job === undefined ? "missing" : await job.getState();
+};
+console.log(JSON.stringify({
+  replay: await state(process.env.QUAL_REPLAY_JOB),
+  forged: await state(process.env.QUAL_FORGED_JOB),
+}));
+await queue.close();
+'''
+
+
 def backend_python(name: str, program: str, env: dict[str, str]) -> dict[str, Any]:
     args = ["exec", "-i", "-n", "vigil", "deploy/vigil-backend", "-c", "backend", "--", "env"]
     args.extend(f"{key}={value}" for key, value in env.items())
@@ -314,6 +346,11 @@ def worker_node(name: str, program: str, env: dict[str, str]) -> dict[str, Any]:
     args.extend(["node", "--input-type=module", "-e", program])
     result = runtime.kubectl(name, *args)
     return json.loads(result.stdout.strip().splitlines()[-1])
+
+
+def worker_queue_control(name: str, action: str) -> dict[str, Any]:
+    """Pause queue consumption without removing the SPIFFE-authenticated pod."""
+    return worker_node(name, QUEUE_CONTROL, {"QUAL_QUEUE_ACTION": action})
 
 
 def aws(name: str, *args: str, input_bytes: bytes | None = None) -> subprocess.CompletedProcess[bytes]:
@@ -489,11 +526,9 @@ def main() -> int:
         # run one authorized connector read, then mutate every grant binding.
         # Only the positive call may create a reservation/effect.
         for name, target in runtime.TARGETS.items():
-            runtime.kubectl(
-                name, "exec", "-n", "vigil", "deploy/vigil-agent-worker",
-                "-c", "agent-worker", "--", "node", "-e",
-                "process.kill(1, 'SIGSTOP')",
-            )
+            paused = worker_queue_control(name, "pause")
+            if paused != {"action": "pause", "paused": True}:
+                raise RuntimeError(f"tenant {name} queue did not pause: {paused}")
             probe_started: dict[str, Any] | None = None
             before = backend_python(name, DB_STATE, {})
             try:
@@ -512,11 +547,9 @@ def main() -> int:
                 })
                 after_probe = backend_python(name, DB_STATE, {})
             finally:
-                runtime.kubectl(
-                    name, "exec", "-n", "vigil", "deploy/vigil-agent-worker",
-                    "-c", "agent-worker", "--", "node", "-e",
-                    "process.kill(1, 'SIGCONT')", check=False,
-                )
+                resumed = worker_queue_control(name, "resume")
+                if resumed != {"action": "resume", "paused": False}:
+                    raise RuntimeError(f"tenant {name} queue did not resume: {resumed}")
             if probe_started is None:
                 raise RuntimeError("grant matrix did not create its positive control")
             runtime.wait_run(target, tokens[name], probe_started["run_id"])
@@ -531,22 +564,29 @@ def main() -> int:
                 and int(after_probe["connector_effects"]) == int(before["connector_effects"]) + 2
             )
 
-        # Replaying completed exact work and a correctly shaped but altered
-        # envelope both enter the real broker and must land in its failed set
-        # without a ledger event or connector effect.
+        # Exact duplicate delivery is an idempotent no-op, while a correctly
+        # shaped but altered envelope must land in the failed set. Neither may
+        # append a ledger event or create a connector effect.
         for name in ("a", "b"):
             run_id = report["tenants"][name]["managed_run"]["admission"]["run_id"]
             cache_before = worker_node(name, CACHE_PROBE, {"QUAL_CANARY": canaries[name]})
             replay = backend_python(name, REPLAY_ENQUEUE, {"QUAL_RUN": run_id})
             time.sleep(35)
             cache_after = worker_node(name, CACHE_PROBE, {"QUAL_CANARY": canaries[name]})
+            job_states = worker_node(name, QUEUE_JOB_STATES, {
+                "QUAL_REPLAY_JOB": replay["replay_job"],
+                "QUAL_FORGED_JOB": replay["forged_job"],
+            })
             effects_after = backend_python(name, RUN_EFFECTS, {"QUAL_RUN": run_id})
             report["tenants"][name]["broker_replay"] = {
                 "enqueued": replay, "cache_before": cache_before,
-                "cache_after": cache_after, "effects_after": effects_after,
+                "cache_after": cache_after, "job_states": job_states,
+                "effects_after": effects_after,
             }
             report["assertions"][f"T04_{name}_replay_and_forgery_zero_effect"] = (
-                int(cache_after["failed"]) >= int(cache_before["failed"]) + 2
+                int(cache_after["failed"]) >= int(cache_before["failed"]) + 1
+                and int(cache_after["completed"]) >= int(cache_before["completed"]) + 1
+                and job_states == {"replay": "completed", "forged": "failed"}
                 and int(effects_after["events"]) == int(replay["events"])
                 and int(effects_after["effects"]) == int(replay["effects"])
                 and effects_after["status"] == "succeeded"
