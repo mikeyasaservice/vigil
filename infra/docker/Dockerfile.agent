@@ -72,6 +72,13 @@ COPY --from=build /build/arch/*.yaml ./dist/arch/
 # the digest bound into the signed admission without contacting the backend.
 COPY --from=build /build/managed/*.yaml ./dist/managed/
 
+# Node's bundled public roots do not include the Amazon RDS private database
+# roots. Keep verification enabled and augment Node's trust with the official
+# AWS bundle used by Aurora and RDS. The adjacent sha256 file records the exact
+# bundle reviewed for this image build.
+COPY infra/docker/certs/aws-rds-global-bundle.pem /opt/vigil/certs/aws-rds-global-bundle.pem
+COPY infra/docker/certs/aws-rds-global-bundle.sha256 /opt/vigil/certs/aws-rds-global-bundle.sha256
+
 RUN if [ -n "${VIGIL_VERSION}" ]; then echo "${VIGIL_VERSION}" > /app/VERSION; fi
 
 # 6989 serve: chat, run projections, and its own probes.
@@ -82,6 +89,7 @@ EXPOSE 6989 6990
 # Numeric to match the chart's podSecurityContext runAsUser literally.
 USER 1000:1000
 
-ENV NODE_ENV=production
+ENV NODE_ENV=production \
+    NODE_EXTRA_CA_CERTS=/opt/vigil/certs/aws-rds-global-bundle.pem
 
 CMD ["node", "dist/worker.js"]

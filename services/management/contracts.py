@@ -136,7 +136,9 @@ class DeploymentManifest(ClosedModel):
         if any(not _LOCAL_REF.fullmatch(value) for value in local_refs):
             raise ValueError("deployment references must be trusted local references")
         if not _APPROVED_REF.fullmatch(self.operations.rollback_compatibility_ref):
-            raise ValueError("rollback compatibility must be an approved sha256 reference")
+            raise ValueError(
+                "rollback compatibility must be an approved sha256 reference"
+            )
         if len(set(self.credentials.integration_secret_refs)) != len(
             self.credentials.integration_secret_refs
         ):
@@ -226,7 +228,12 @@ class RouteTicketResponse(ClosedModel):
 
 
 QuotaDimension = Literal[
-    "api_requests", "agent_runs", "model_tokens", "tool_calls", "ingest_bytes", "stored_bytes"
+    "api_requests",
+    "agent_runs",
+    "model_tokens",
+    "tool_calls",
+    "ingest_bytes",
+    "stored_bytes",
 ]
 
 
@@ -297,6 +304,7 @@ class BYOCEnrollRequest(ClosedModel):
     local_policy_digest: str = Field(pattern=r"^[a-f0-9]{64}$")
     connector_public_key: str = Field(min_length=40, max_length=128)
     proof_signature: str = Field(min_length=40, max_length=256)
+    certificate_signing_request: str = Field(min_length=128, max_length=16384)
 
 
 class BYOCConnectorResponse(ClosedModel):
@@ -310,6 +318,24 @@ class BYOCConnectorResponse(ClosedModel):
     management_enabled: bool
     last_health_sequence: int = Field(ge=0)
     last_health_at: str | None = None
+
+
+class BYOCEnrollmentCompleteResponse(BYOCConnectorResponse):
+    client_certificate: str
+    ca_certificate: str
+    certificate_expires_at: str
+    certificate_serial: str = Field(pattern=r"^[a-f0-9]+$")
+
+
+class BYOCCertificateRotationRequest(ClosedModel):
+    certificate_signing_request: str = Field(min_length=128, max_length=16384)
+
+
+class BYOCCertificateResponse(ClosedModel):
+    client_certificate: str
+    ca_certificate: str
+    certificate_expires_at: str
+    certificate_serial: str = Field(pattern=r"^[a-f0-9]+$")
 
 
 class BYOCHealthPayload(ClosedModel):

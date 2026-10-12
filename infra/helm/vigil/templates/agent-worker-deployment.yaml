@@ -33,6 +33,9 @@ spec:
       annotations:
         checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
         checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- if .Values.managedExecution.enabled }}
+        checksum/managed-envoy: {{ include (print $.Template.BasePath "/managed-envoy-configmap.yaml") . | sha256sum }}
+        {{- end }}
         {{- with .Values.agentWorker.podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -52,6 +55,9 @@ spec:
             - { name: PGPORT, value: {{ include "vigil.postgres.port" . | quote }} }
             - { name: PGDATABASE, value: {{ include "vigil.postgres.database" . | quote }} }
             - { name: PGUSER, value: vigil_agent }
+            {{- if and (not .Values.postgresql.enabled) .Values.postgresql.external.sslRequired }}
+            - { name: PGSSLMODE, value: require }
+            {{- end }}
             - name: PGPASSWORD
               valueFrom: { secretKeyRef: { name: {{ include "vigil.postgres.passwordSecret" . }}, key: {{ include "vigil.postgres.passwordSecretKey" . }} } }
           command: ["/bin/sh", "-ec"]

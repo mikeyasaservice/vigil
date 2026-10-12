@@ -8,6 +8,9 @@ export const JOB_SCHEMA_VERSION = 1;
 // No colon: BullMQ's Node library refuses a queue name containing one, while
 // its Python library accepts it and writes the keys anyway. Keys are bull:agent-runs:*.
 export const RUN_QUEUE = "agent-runs";
+// Shared with core/agents/queue.py. The hash tag makes BullMQ's multi-key Lua
+// operations legal on Valkey/Redis Cluster while retaining a readable queue name.
+export const RUN_QUEUE_PREFIX = "{bull}";
 
 /** Signed admission produced by the tenant-local managed authority. */
 export interface ManagedQueueEnvelope {

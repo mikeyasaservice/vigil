@@ -3,7 +3,7 @@
   "deployment_id": "deployment-byoc-a",
   "account_id": "111111111111",
   "incarnation": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-  "connector_spiffe_id": "spiffe://customer.example/vigil/connector-a",
+  "connector_spiffe_id": "spiffe://customer.example/autobot/connector-a",
   "local_policy_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
   "management_public_key": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg"
 }

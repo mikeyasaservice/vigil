@@ -12,22 +12,35 @@ var (
 	accountID = regexp.MustCompile(`^[0-9]{12}$`)
 )
 
-func Validate(endpoint, account, tenant, deployment, acknowledgement string) error {
-	parsed, err := url.Parse(endpoint)
-	if err != nil || parsed.Scheme != "http" || parsed.Path != "" || parsed.RawQuery != "" || parsed.Fragment != "" || parsed.Port() == "" {
-		return fmt.Errorf("LocalStack endpoint must be an explicit loopback HTTP origin")
-	}
-	if parsed.Hostname() != "127.0.0.1" && parsed.Hostname() != "localhost" {
-		return fmt.Errorf("LocalStack endpoint must use a loopback host")
-	}
+func Validate(profile, endpoint, account, platformAccount, tenant, deployment, acknowledgement string) error {
 	if !accountID.MatchString(account) || account == "000000000000" {
-		return fmt.Errorf("customer account ID must be a non-platform 12 digit account")
+		return fmt.Errorf("target account ID must be a nonzero 12 digit account")
 	}
 	if !slug.MatchString(tenant) || !slug.MatchString(deployment) {
 		return fmt.Errorf("tenant and deployment IDs must be lowercase slugs")
 	}
-	if acknowledgement != "customer-owned-account" {
-		return fmt.Errorf("customer ownership acknowledgement is required")
+	switch profile {
+	case "localstack":
+		parsed, err := url.Parse(endpoint)
+		if err != nil || parsed.Scheme != "http" || parsed.Path != "" || parsed.RawQuery != "" || parsed.Fragment != "" || parsed.Port() == "" {
+			return fmt.Errorf("LocalStack endpoint must be an explicit loopback HTTP origin")
+		}
+		if parsed.Hostname() != "127.0.0.1" && parsed.Hostname() != "localhost" {
+			return fmt.Errorf("LocalStack endpoint must use a loopback host")
+		}
+		if acknowledgement != "customer-owned-account" {
+			return fmt.Errorf("customer ownership acknowledgement is required")
+		}
+	case "aws":
+		if endpoint != "" || !accountID.MatchString(platformAccount) || account == platformAccount || acknowledgement != "customer-owned-account" {
+			return fmt.Errorf("real BYOC requires a separately owned AWS account and explicit ownership acknowledgement")
+		}
+	case "aws-qualification":
+		if endpoint != "" || account != platformAccount || acknowledgement != "same-account-dev-qualification" {
+			return fmt.Errorf("same-account AWS qualification must be labeled explicitly")
+		}
+	default:
+		return fmt.Errorf("execution profile is invalid")
 	}
 	return nil
 }

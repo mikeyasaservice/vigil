@@ -15,7 +15,7 @@ const authState = vi.hoisted(() => ({
 
 vi.mock('../contexts/AuthContext', () => ({
   useAuth: () => ({
-    user: { full_name: 'Test User', email: 'test@vigil.local', role_id: 'role-admin', mfa_enabled: false },
+    user: { full_name: 'Test User', email: 'test@autobot.local', role_id: 'role-admin', mfa_enabled: false },
     logout: vi.fn(),
     hasPermission: (permission: string) => authState.allow(permission),
   }),

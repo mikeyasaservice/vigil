@@ -20,6 +20,9 @@ logger = logging.getLogger(__name__)
 # No colon: the Node library refuses a queue name containing one, while the
 # Python library accepts it and writes the keys anyway. Keys are bull:agent-runs:*.
 RUN_QUEUE = "agent-runs"
+# BullMQ uses Lua scripts spanning several keys. Valkey/Redis Cluster accepts
+# those scripts only when every queue key hashes to the same slot.
+RUN_QUEUE_PREFIX = "{bull}"
 
 JOB_SCHEMA_VERSION = 1
 
@@ -117,7 +120,10 @@ def _run_queue() -> Queue:
     loop = asyncio.get_running_loop()
     queue = _queues.get(loop)
     if queue is None:
-        queue = Queue(RUN_QUEUE, {"connection": _redis_url()})
+        queue = Queue(
+            RUN_QUEUE,
+            {"connection": _redis_url(), "prefix": RUN_QUEUE_PREFIX},
+        )
         _queues[loop] = queue
     return queue
 

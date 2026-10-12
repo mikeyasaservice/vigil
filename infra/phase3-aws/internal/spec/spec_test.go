@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestCanonicalDigestMatchesSharedFixture(t *testing.T) {
@@ -66,17 +67,20 @@ func validManifestAndBinding() (Manifest, Binding) {
 		ExecutionProfile: "aws",
 		BindingRef:       "local:account-a", TenantID: "tenant-a", DeploymentID: "deployment-a",
 		AccountID: "111111111111", RoleARN: "arn:aws:iam::111111111111:role/VigilProvisioner",
-		ExternalID: "external-a", Region: "us-east-1", NetworkBindingRef: "local:network-a",
+		ExternalID: "external-a", KubeconfigCredentialProfile: "vigil-tenant-a", Region: "us-east-1", NetworkBindingRef: "local:network-a",
 		StateBindingRef: "local:state-a", StateBackendURL: "s3://vigil-pulumi-state-a",
 		SecretsProvider: "awskms://alias/vigil-pulumi-a", PulumiHome: "/var/lib/vigil/pulumi/a",
 		WorkspaceRoot: "/var/lib/vigil/workspaces/a", ReceiptPrivateKeyPath: "/var/run/secrets/vigil/receipt.key",
 		InfrastructureSourcePath: "/opt/vigil/phase3-aws", ReconcilerSPIFFEID: "spiffe://vigil.io/management/reconciler-a",
-		ManagementBaseURL: "https://management.vigil.internal", ManagementServerName: "management.vigil.internal",
+		ManagementBaseURL: "https://management.autobot.internal", ManagementServerName: "management.autobot.internal",
 		ManagementCAPath:         "/var/run/secrets/vigil/management-ca.pem",
 		ManagementClientCertPath: "/var/run/secrets/vigil/tls.crt", ManagementClientKeyPath: "/var/run/secrets/vigil/tls.key",
 		PermittedAvailabilityZones: []string{"us-east-1a", "us-east-1b"},
 		VpcCIDR:                    "10.64.0.0/16", PublicSubnetCIDRs: []string{"10.64.0.0/24", "10.64.1.0/24"},
-		PrivateSubnetCIDRs: []string{"10.64.16.0/20", "10.64.32.0/20"},
+		PrivateSubnetCIDRs:      []string{"10.64.16.0/20", "10.64.32.0/20"},
+		ControlPlaneAccessCIDRs: []string{"203.0.113.10/32"},
+		ResourceExpiresAt:       time.Now().UTC().Add(48 * time.Hour).Format(time.RFC3339),
+		LifecycleState:          "active",
 	}
 	return manifest, binding
 }
@@ -88,8 +92,11 @@ func TestValidateAcceptsBoundLocalStackProfile(t *testing.T) {
 	binding.AccountID = "000000000000"
 	binding.RoleARN = ""
 	binding.ExternalID = ""
+	binding.KubeconfigCredentialProfile = ""
 	binding.StateBackendURL = "file:///tmp/vigil-state-a"
 	binding.SecretsProvider = "passphrase"
+	binding.ControlPlaneAccessCIDRs = nil
+	binding.ResourceExpiresAt = ""
 	if err := Validate(manifest, binding); err != nil {
 		t.Fatalf("LocalStack positive control failed: %v", err)
 	}
@@ -102,8 +109,11 @@ func TestValidateRejectsUntrustedLocalStackEndpoint(t *testing.T) {
 	binding.AccountID = "000000000000"
 	binding.RoleARN = ""
 	binding.ExternalID = ""
+	binding.KubeconfigCredentialProfile = ""
 	binding.StateBackendURL = "file:///tmp/vigil-state-a"
 	binding.SecretsProvider = "passphrase"
+	binding.ControlPlaneAccessCIDRs = nil
+	binding.ResourceExpiresAt = ""
 	if err := Validate(manifest, binding); err == nil {
 		t.Fatal("non-loopback LocalStack endpoint was accepted")
 	}
@@ -135,5 +145,18 @@ func TestValidateRejectsUnimplementedPublicIngress(t *testing.T) {
 	binding.PublicIngressCIDRs = []string{"203.0.113.0/24"}
 	if err := Validate(manifest, binding); err == nil {
 		t.Fatal("public ingress was accepted before the profile implements it")
+	}
+}
+
+func TestValidateRejectsUnboundedControlPlaneAndLongLivedQualification(t *testing.T) {
+	manifest, binding := validManifestAndBinding()
+	binding.ControlPlaneAccessCIDRs = []string{"0.0.0.0/0"}
+	if err := Validate(manifest, binding); err == nil {
+		t.Fatal("unbounded EKS control-plane access was accepted")
+	}
+	binding.ControlPlaneAccessCIDRs = []string{"203.0.113.10/32"}
+	binding.ResourceExpiresAt = time.Now().UTC().Add(8 * 24 * time.Hour).Format(time.RFC3339)
+	if err := Validate(manifest, binding); err == nil {
+		t.Fatal("long-lived qualification resources were accepted")
 	}
 }

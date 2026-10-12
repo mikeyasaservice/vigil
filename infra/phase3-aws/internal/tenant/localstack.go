@@ -31,7 +31,7 @@ func NewLocalStackDeployment(ctx *pulumi.Context, name string, args DeploymentAr
 		base := []pulumi.ResourceOption{pulumi.Parent(component), pulumi.Provider(args.Provider)}
 		return append(base, extra...)
 	}
-	commonTags := tags(args.Manifest)
+	commonTags := tags(args.Manifest, args.Binding)
 	key, err := kms.NewKey(ctx, name+"-data", &kms.KeyArgs{
 		Description: pulumi.String("Tenant-local Vigil LocalStack development key"),
 		Tags:        commonTags,

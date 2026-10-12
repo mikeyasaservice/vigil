@@ -213,7 +213,20 @@ paths:
         required: true
         content: {application/json: {schema: {$ref: '#/components/schemas/BYOCEnrollRequest'}}}
       responses:
-        '200': {description: Durable customer connector binding, content: {application/json: {schema: {$ref: '#/components/schemas/BYOCConnector'}}}}
+        '200': {description: Durable connector binding and short-lived client certificate, content: {application/json: {schema: {$ref: '#/components/schemas/BYOCEnrollmentComplete'}}}}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+  /internal/v1/byoc/deployments/{deployment_id}/certificate/rotate:
+    post:
+      operationId: rotateByocConnectorCertificate
+      security: [{byocConnectorWorkload: []}]
+      parameters: [{$ref: '#/components/parameters/DeploymentId'}]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: '#/components/schemas/BYOCCertificateRotationRequest'}}}
+      responses:
+        '200': {description: Rotated short-lived client certificate, content: {application/json: {schema: {$ref: '#/components/schemas/BYOCCertificateResponse'}}}}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '409': {$ref: '#/components/responses/Error'}
@@ -658,7 +671,7 @@ components:
     BYOCEnrollRequest:
       type: object
       additionalProperties: false
-      required: [enrollment_id, enrollment_token, account_id, local_policy_digest, connector_public_key, proof_signature]
+      required: [enrollment_id, enrollment_token, account_id, local_policy_digest, connector_public_key, proof_signature, certificate_signing_request]
       properties:
         enrollment_id: {type: string, format: uuid}
         enrollment_token: {type: string, minLength: 32, maxLength: 256}
@@ -666,6 +679,7 @@ components:
         local_policy_digest: {$ref: '#/components/schemas/Sha256'}
         connector_public_key: {type: string, minLength: 40, maxLength: 128}
         proof_signature: {type: string, minLength: 40, maxLength: 256}
+        certificate_signing_request: {type: string, minLength: 128, maxLength: 16384}
     BYOCConnector:
       type: object
       additionalProperties: false
@@ -681,6 +695,40 @@ components:
         management_enabled: {type: boolean}
         last_health_sequence: {type: integer, minimum: 0}
         last_health_at: {type: [string, 'null'], format: date-time}
+    BYOCCertificateResponse:
+      type: object
+      additionalProperties: false
+      required: [client_certificate, ca_certificate, certificate_expires_at, certificate_serial]
+      properties:
+        client_certificate: {type: string}
+        ca_certificate: {type: string}
+        certificate_expires_at: {type: string, format: date-time}
+        certificate_serial: {type: string, pattern: '^[a-f0-9]+$'}
+    BYOCEnrollmentComplete:
+      type: object
+      additionalProperties: false
+      required: [tenant_id, deployment_id, account_id, connector_spiffe_id, local_policy_digest, trust_version, revocation_epoch, management_enabled, last_health_sequence, client_certificate, ca_certificate, certificate_expires_at, certificate_serial]
+      properties:
+        tenant_id: {type: string}
+        deployment_id: {type: string}
+        account_id: {type: string}
+        connector_spiffe_id: {type: string}
+        local_policy_digest: {$ref: '#/components/schemas/Sha256'}
+        trust_version: {type: integer, minimum: 1}
+        revocation_epoch: {type: integer, minimum: 1}
+        management_enabled: {type: boolean}
+        last_health_sequence: {type: integer, minimum: 0}
+        last_health_at: {type: [string, 'null'], format: date-time}
+        client_certificate: {type: string}
+        ca_certificate: {type: string}
+        certificate_expires_at: {type: string, format: date-time}
+        certificate_serial: {type: string, pattern: '^[a-f0-9]+$'}
+    BYOCCertificateRotationRequest:
+      type: object
+      additionalProperties: false
+      required: [certificate_signing_request]
+      properties:
+        certificate_signing_request: {type: string, minLength: 128, maxLength: 16384}
     BYOCHealthEvent:
       type: object
       additionalProperties: false

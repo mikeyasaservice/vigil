@@ -154,7 +154,7 @@
   "AUTH_MIN_PASSWORD_LENGTH=12",
   "PASSWORD_RESET_TTL_SECONDS: 3600",
   "2026-10-05 12:00:00,123 - vigil.daemon - INFO - polled https://api.example.com/v1/x",
-  "CORS_ORIGINS=http://localhost:6988,https://vigil.example.com/app",
+  "CORS_ORIGINS=http://localhost:6988,https://autobot.example.com/app",
   "http://host:8080/p?email=a@b.com",
   "ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}",
   "- OPENAI_API_KEY=$OPENAI_API_KEY",

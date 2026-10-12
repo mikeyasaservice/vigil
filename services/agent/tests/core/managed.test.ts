@@ -117,7 +117,7 @@ describe("managed queue admission", () => {
 
   it("requests no invented fallback capability from the security service", async () => {
     const job = admitted();
-    const workloadId = "spiffe://vigil.local/ns/tenant-a/sa/worker";
+    const workloadId = "spiffe://autobot.local/ns/tenant-a/sa/worker";
     process.env["VIGIL_WORKER_SPIFFE_ID"] = workloadId;
     let requested: unknown;
     vi.stubGlobal("fetch", vi.fn(async (_url: string, init?: RequestInit) => {
@@ -141,7 +141,7 @@ describe("managed queue admission", () => {
   });
 
   it("surfaces a stable security-service claim denial code", async () => {
-    process.env["VIGIL_WORKER_SPIFFE_ID"] = "spiffe://vigil.local/ns/tenant-a/sa/worker";
+    process.env["VIGIL_WORKER_SPIFFE_ID"] = "spiffe://autobot.local/ns/tenant-a/sa/worker";
     vi.stubGlobal("fetch", vi.fn(async () => new Response(
       JSON.stringify({ detail: { code: "claim_state_denied" } }),
       { status: 403, headers: { "content-type": "application/json" } },

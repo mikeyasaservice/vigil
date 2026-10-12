@@ -11,12 +11,20 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Iterator
 
 import psycopg2
-from core.agents.managed_execution import Ed25519Verifier, ManagedSecurityError, managed_digest
+from core.agents.managed_execution import (
+    Ed25519Verifier,
+    ManagedSecurityError,
+    managed_digest,
+)
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from psycopg2.extras import RealDictCursor
 from services.management.auth import OperatorIdentity
 from services.management.byoc import enrollment_proof
-from services.management.contracts import BYOCEnrollmentRequest, BYOCHealthEvent, DeploymentManifest
+from services.management.contracts import (
+    BYOCEnrollmentRequest,
+    BYOCHealthEvent,
+    DeploymentManifest,
+)
 from services.management.saas_auth import CustomerIdentity
 
 
@@ -50,7 +58,9 @@ class ManagementStore:
         with self._transaction() as cursor:
             cursor.execute("SELECT 1")
             if cursor.fetchone() is None:
-                raise ManagementUnavailable("management database readiness check failed")
+                raise ManagementUnavailable(
+                    "management database readiness check failed"
+                )
 
     @contextmanager
     def _transaction(self) -> Iterator[Any]:
@@ -68,7 +78,9 @@ class ManagementStore:
             connection.close()
 
     @staticmethod
-    def _scope(cursor, actor: OperatorIdentity, tenant_id: str, roles: tuple[str, ...]) -> None:
+    def _scope(
+        cursor, actor: OperatorIdentity, tenant_id: str, roles: tuple[str, ...]
+    ) -> None:
         cursor.execute(
             """
             SELECT 1
@@ -86,7 +98,9 @@ class ManagementStore:
             },
         )
         if cursor.fetchone() is None:
-            raise ManagementDenied("operator is not authorized for this tenant operation")
+            raise ManagementDenied(
+                "operator is not authorized for this tenant operation"
+            )
 
     @staticmethod
     def _binding(cursor, manifest: DeploymentManifest) -> dict[str, Any]:
@@ -124,7 +138,9 @@ class ManagementStore:
         if row is None:
             raise ManagementDenied("deployment target is not an active trusted binding")
         held = dict(row)
-        if (manifest.mode == "byoc") != (held["execution_profile"] in {"byoc", "byoc-localstack"}):
+        if (manifest.mode == "byoc") != (
+            held["execution_profile"] in {"byoc", "byoc-localstack"}
+        ):
             raise ManagementDenied("deployment mode does not match the trusted binding")
         return held
 
@@ -145,7 +161,10 @@ class ManagementStore:
             """,
             {"digests": list(required)},
         )
-        held = {str(row["digest_ref"]): str(row["artifact_kind"]) for row in cursor.fetchall()}
+        held = {
+            str(row["digest_ref"]): str(row["artifact_kind"])
+            for row in cursor.fetchall()
+        }
         if held != required:
             raise ManagementDenied(
                 "manifest contains an unapproved or incorrectly classified artifact"
@@ -164,7 +183,10 @@ class ManagementStore:
         operation_id = uuid.uuid4()
         with self._transaction() as cursor:
             self._scope(
-                cursor, actor, manifest.tenant_id, ("platform_admin", "deployment_operator")
+                cursor,
+                actor,
+                manifest.tenant_id,
+                ("platform_admin", "deployment_operator"),
             )
             binding = self._binding(cursor, manifest)
             self._artifacts(cursor, manifest)
@@ -182,7 +204,9 @@ class ManagementStore:
                     existing["manifest_digest"] != digest
                     or existing["operation_kind"] != operation_kind
                 ):
-                    raise ManagementConflict("idempotency key was already used for different work")
+                    raise ManagementConflict(
+                        "idempotency key was already used for different work"
+                    )
                 return dict(existing)
             cursor.execute(
                 """
@@ -219,7 +243,9 @@ class ManagementStore:
                 or deployment["binding_ref"] != manifest.placement.account_binding_ref
                 or str(deployment["incarnation"]) != str(manifest.incarnation)
             ):
-                raise ManagementDenied("manifest identity does not match the registered deployment")
+                raise ManagementDenied(
+                    "manifest identity does not match the registered deployment"
+                )
             if int(deployment["desired_generation"]) != manifest.expected_generation:
                 raise ManagementConflict("manifest expected generation is stale")
             cursor.execute(
@@ -301,7 +327,9 @@ class ManagementStore:
             )
             return operation
 
-    def get_operation(self, operation_id: str, actor: OperatorIdentity) -> dict[str, Any] | None:
+    def get_operation(
+        self, operation_id: str, actor: OperatorIdentity
+    ) -> dict[str, Any] | None:
         with self._transaction() as cursor:
             cursor.execute(
                 "SELECT * FROM management_operations WHERE operation_id = CAST(%s AS uuid)",
@@ -314,14 +342,22 @@ class ManagementStore:
                 cursor,
                 actor,
                 str(row["tenant_id"]),
-                ("platform_admin", "deployment_operator", "deployment_approver", "auditor"),
+                (
+                    "platform_admin",
+                    "deployment_operator",
+                    "deployment_approver",
+                    "auditor",
+                ),
             )
             return dict(row)
 
-    def get_deployment(self, deployment_id: str, actor: OperatorIdentity) -> dict[str, Any] | None:
+    def get_deployment(
+        self, deployment_id: str, actor: OperatorIdentity
+    ) -> dict[str, Any] | None:
         with self._transaction() as cursor:
             cursor.execute(
-                "SELECT * FROM management_deployments WHERE deployment_id = %s", (deployment_id,)
+                "SELECT * FROM management_deployments WHERE deployment_id = %s",
+                (deployment_id,),
             )
             row = cursor.fetchone()
             if row is None:
@@ -330,7 +366,12 @@ class ManagementStore:
                 cursor,
                 actor,
                 str(row["tenant_id"]),
-                ("platform_admin", "deployment_operator", "deployment_approver", "auditor"),
+                (
+                    "platform_admin",
+                    "deployment_operator",
+                    "deployment_approver",
+                    "auditor",
+                ),
             )
             return dict(row)
 
@@ -362,14 +403,18 @@ class ManagementStore:
                 operation["actor_issuer"] == actor.issuer
                 and operation["actor_subject"] == actor.subject_id
             ):
-                raise ManagementDenied("deployment requester cannot approve the same operation")
+                raise ManagementDenied(
+                    "deployment requester cannot approve the same operation"
+                )
             if operation["status"] != "awaiting_approval":
                 raise ManagementConflict("operation is not awaiting approval")
             if (
                 operation["manifest_digest"] != manifest_digest_value
                 or operation["plan_hash"] != plan_hash
             ):
-                raise ManagementConflict("approval does not match the current manifest and plan")
+                raise ManagementConflict(
+                    "approval does not match the current manifest and plan"
+                )
             cursor.execute(
                 """
                 INSERT INTO management_operation_approvals
@@ -437,11 +482,17 @@ class ManagementStore:
             if row is None:
                 raise ManagementError("operation was not found")
             if row["reconciler_spiffe_id"] != workload_spiffe_id:
-                raise ManagementDenied("reconciler workload is not bound to this deployment")
+                raise ManagementDenied(
+                    "reconciler workload is not bound to this deployment"
+                )
             if int(row["fencing_token"]) != int(row["next_fencing_token"]) - 1:
-                raise ManagementConflict("operation was fenced by newer deployment work")
+                raise ManagementConflict(
+                    "operation was fenced by newer deployment work"
+                )
             if row["manifest_digest"] != row["desired_manifest_digest"]:
-                raise ManagementConflict("desired manifest changed after operation admission")
+                raise ManagementConflict(
+                    "desired manifest changed after operation admission"
+                )
             expected_status = "planning" if phase == "plan" else "approved"
             reclaimable = (
                 row["status"] == "claimed"
@@ -449,7 +500,9 @@ class ManagementStore:
                 and row["lease_expires_at"] is not None
                 and row["lease_expires_at"] <= datetime.now(timezone.utc)
             )
-            retryable = row["status"] == "recovery_required" and row["claimed_phase"] == phase
+            retryable = (
+                row["status"] == "recovery_required" and row["claimed_phase"] == phase
+            )
             if row["status"] != expected_status and not reclaimable and not retryable:
                 raise ManagementConflict(f"operation is not ready for {phase}")
             if phase == "apply":
@@ -530,8 +583,13 @@ class ManagementStore:
             row = cursor.fetchone()
             if row is None:
                 raise ManagementError("operation was not found")
-            if row["reconciler_spiffe_id"] != workload_spiffe_id or row["claimed_by"] != runner_id:
-                raise ManagementDenied("plan result is not from the current bound claimant")
+            if (
+                row["reconciler_spiffe_id"] != workload_spiffe_id
+                or row["claimed_by"] != runner_id
+            ):
+                raise ManagementDenied(
+                    "plan result is not from the current bound claimant"
+                )
             if str(row["claim_command_id"]) != command_id:
                 raise ManagementConflict("plan command is stale")
             if (
@@ -540,9 +598,9 @@ class ManagementStore:
                 or int(row["fencing_token"]) != fencing_token
             ):
                 raise ManagementConflict("plan claimant is stale")
-            if row["lease_expires_at"] is None or row["lease_expires_at"] <= datetime.now(
-                timezone.utc
-            ):
+            if row["lease_expires_at"] is None or row[
+                "lease_expires_at"
+            ] <= datetime.now(timezone.utc):
                 raise ManagementConflict("plan claimant lease expired")
             if row["manifest_digest"] != digest:
                 raise ManagementConflict("plan digest does not match admitted manifest")
@@ -564,7 +622,11 @@ class ManagementStore:
                 (operation["deployment_id"],),
             )
             payload = json.dumps(
-                {"command_id": command_id, "manifest_digest": digest, "plan_hash": plan_hash},
+                {
+                    "command_id": command_id,
+                    "manifest_digest": digest,
+                    "plan_hash": plan_hash,
+                },
                 separators=(",", ":"),
             )
             cursor.execute(
@@ -602,7 +664,10 @@ class ManagementStore:
             row = cursor.fetchone()
             if row is None:
                 raise ManagementError("operation was not found")
-            if row["reconciler_spiffe_id"] != workload_spiffe_id or row["claimed_by"] != runner_id:
+            if (
+                row["reconciler_spiffe_id"] != workload_spiffe_id
+                or row["claimed_by"] != runner_id
+            ):
                 raise ManagementDenied("receipt is not from the current bound claimant")
             if (
                 row["status"] != "claimed"
@@ -610,9 +675,9 @@ class ManagementStore:
                 or int(row["next_fencing_token"]) - 1 != int(row["fencing_token"])
             ):
                 raise ManagementConflict("receipt claimant is stale")
-            if row["lease_expires_at"] is None or row["lease_expires_at"] <= datetime.now(
-                timezone.utc
-            ):
+            if row["lease_expires_at"] is None or row[
+                "lease_expires_at"
+            ] <= datetime.now(timezone.utc):
                 raise ManagementConflict("receipt claimant lease expired")
             signature = str(receipt.pop("signature", ""))
             expected = {
@@ -633,7 +698,9 @@ class ManagementStore:
                 public_key = Ed25519PublicKey.from_public_bytes(
                     base64.urlsafe_b64decode(padded_key)
                 )
-                Ed25519Verifier(public_key, "management-reconciler").verify(receipt, signature)
+                Ed25519Verifier(public_key, "management-reconciler").verify(
+                    receipt, signature
+                )
             except (ManagedSecurityError, ValueError, binascii.Error) as exc:
                 raise ManagementDenied("receipt signature is invalid") from exc
             receipt_digest = managed_digest(receipt)
@@ -658,7 +725,9 @@ class ManagementStore:
                     "manifest": receipt["manifest_digest"],
                     "plan": receipt["plan_hash"],
                     "generation": receipt["observed_generation"],
-                    "inventory": json.dumps(receipt["resource_inventory"], separators=(",", ":")),
+                    "inventory": json.dumps(
+                        receipt["resource_inventory"], separators=(",", ":")
+                    ),
                     "verification": json.dumps(
                         receipt["verification_summary"], separators=(",", ":")
                     ),
@@ -696,7 +765,9 @@ class ManagementStore:
             )
             deployment = cursor.fetchone()
             if deployment is None:
-                raise ManagementConflict("deployment fence advanced before receipt commit")
+                raise ManagementConflict(
+                    "deployment fence advanced before receipt commit"
+                )
             cursor.execute(
                 """
                 INSERT INTO management_operation_events (operation_id, sequence, event_type, payload)
@@ -709,7 +780,10 @@ class ManagementStore:
                 {
                     "operation": operation_id,
                     "payload": json.dumps(
-                        {"command_id": receipt["command_id"], "receipt_digest": receipt_digest}
+                        {
+                            "command_id": receipt["command_id"],
+                            "receipt_digest": receipt_digest,
+                        }
                     ),
                 },
             )
@@ -741,7 +815,10 @@ class ManagementStore:
             row = cursor.fetchone()
             if row is None:
                 raise ManagementError("operation was not found")
-            if row["reconciler_spiffe_id"] != workload_spiffe_id or row["claimed_by"] != runner_id:
+            if (
+                row["reconciler_spiffe_id"] != workload_spiffe_id
+                or row["claimed_by"] != runner_id
+            ):
                 raise ManagementDenied("failure is not from the current bound claimant")
             if str(row["claim_command_id"]) != command_id:
                 raise ManagementConflict("failure command is stale")
@@ -784,7 +861,9 @@ class ManagementStore:
             )
             return failed
 
-    def cancel_operation(self, operation_id: str, actor: OperatorIdentity) -> dict[str, Any]:
+    def cancel_operation(
+        self, operation_id: str, actor: OperatorIdentity
+    ) -> dict[str, Any]:
         with self._transaction() as cursor:
             cursor.execute(
                 "SELECT * FROM management_operations WHERE operation_id = CAST(%s AS uuid) FOR UPDATE",
@@ -794,7 +873,10 @@ class ManagementStore:
             if row is None:
                 raise ManagementError("operation was not found")
             self._scope(
-                cursor, actor, str(row["tenant_id"]), ("platform_admin", "deployment_operator")
+                cursor,
+                actor,
+                str(row["tenant_id"]),
+                ("platform_admin", "deployment_operator"),
             )
             if row["status"] in ("succeeded", "failed", "cancelled"):
                 raise ManagementConflict("operation is already terminal")
@@ -821,7 +903,9 @@ class ManagementStore:
                 {"operation": operation_id},
             )
             cancelled = dict(cursor.fetchone())
-            payload = json.dumps({"fenced_token": row["fencing_token"]}, separators=(",", ":"))
+            payload = json.dumps(
+                {"fenced_token": row["fencing_token"]}, separators=(",", ":")
+            )
             cursor.execute(
                 """
                 INSERT INTO management_operation_events (operation_id, sequence, event_type, payload)
@@ -865,12 +949,16 @@ class ManagementStore:
             contexts = []
             for value in cursor.fetchall():
                 row = dict(value)
-                if int(row.pop("min_membership_version")) != int(row["membership_version"]):
+                if int(row.pop("min_membership_version")) != int(
+                    row["membership_version"]
+                ):
                     continue
                 contexts.append(row)
             return contexts
 
-    def resolve_saas_route(self, tenant_id: str, actor: CustomerIdentity) -> dict[str, Any]:
+    def resolve_saas_route(
+        self, tenant_id: str, actor: CustomerIdentity
+    ) -> dict[str, Any]:
         """Resolve a caller-selected tenant only after membership and route checks."""
         with self._transaction() as cursor:
             cursor.execute(
@@ -892,10 +980,16 @@ class ManagementStore:
                  GROUP BY m.tenant_id, b.deployment_id, b.cell_id, b.route_epoch,
                           c.route_ref, c.region, d.incarnation
                 """,
-                {"issuer": actor.issuer, "subject": actor.subject_id, "tenant": tenant_id},
+                {
+                    "issuer": actor.issuer,
+                    "subject": actor.subject_id,
+                    "tenant": tenant_id,
+                },
             )
             row = cursor.fetchone()
-            if row is None or int(row["min_membership_version"]) != int(row["membership_version"]):
+            if row is None or int(row["min_membership_version"]) != int(
+                row["membership_version"]
+            ):
                 raise ManagementDenied("tenant route is not authorized")
             held = dict(row)
             held.pop("min_membership_version")
@@ -935,8 +1029,10 @@ class ManagementStore:
             current = cursor.fetchone()
             if (
                 current is None
-                or int(current["min_membership_version"]) != int(route["membership_version"])
-                or int(current["max_membership_version"]) != int(route["membership_version"])
+                or int(current["min_membership_version"])
+                != int(route["membership_version"])
+                or int(current["max_membership_version"])
+                != int(route["membership_version"])
                 or current["deployment_id"] != route["deployment_id"]
                 or current["cell_id"] != route["cell_id"]
                 or int(current["route_epoch"]) != int(route["route_epoch"])
@@ -968,11 +1064,17 @@ class ManagementStore:
                   (tenant_id, actor_kind, actor_id, action, outcome, reason_code, resource_ref)
                 VALUES (%s, 'user', %s, 'route.issue', 'allowed', 'active_membership', %s)
                 """,
-                (route["tenant_id"], f"{actor.issuer}#{actor.subject_id}", route["deployment_id"]),
+                (
+                    route["tenant_id"],
+                    f"{actor.issuer}#{actor.subject_id}",
+                    route["deployment_id"],
+                ),
             )
 
     @staticmethod
-    def _saas_workload(cursor, deployment_id: str, workload_spiffe_id: str) -> dict[str, Any]:
+    def _saas_workload(
+        cursor, deployment_id: str, workload_spiffe_id: str
+    ) -> dict[str, Any]:
         cursor.execute(
             """
             SELECT b.tenant_id, b.deployment_id
@@ -989,7 +1091,9 @@ class ManagementStore:
         )
         row = cursor.fetchone()
         if row is None:
-            raise ManagementDenied("workload is not bound to the active tenant deployment")
+            raise ManagementDenied(
+                "workload is not bound to the active tenant deployment"
+            )
         return dict(row)
 
     def reserve_quota(
@@ -1038,7 +1142,9 @@ class ManagementStore:
                 raise ManagementDenied("quota policy is unavailable")
             now = datetime.now(timezone.utc)
             seconds = int(policy["window_seconds"])
-            window = datetime.fromtimestamp(int(now.timestamp()) // seconds * seconds, timezone.utc)
+            window = datetime.fromtimestamp(
+                int(now.timestamp()) // seconds * seconds, timezone.utc
+            )
             cursor.execute(
                 """
                 INSERT INTO management_usage_windows
@@ -1067,7 +1173,9 @@ class ManagementStore:
                 """,
                 (tenant_id, dimension, window, now),
             )
-            expired_amount = sum(int(row["reserved_amount"]) for row in cursor.fetchall())
+            expired_amount = sum(
+                int(row["reserved_amount"]) for row in cursor.fetchall()
+            )
             if expired_amount:
                 cursor.execute(
                     """
@@ -1092,9 +1200,9 @@ class ManagementStore:
                 )
                 usage = cursor.fetchone()
                 assert usage is not None
-            if int(usage["reserved_amount"]) + int(usage["committed_amount"]) + amount > int(
-                policy["hard_limit"]
-            ):
+            if int(usage["reserved_amount"]) + int(
+                usage["committed_amount"]
+            ) + amount > int(policy["hard_limit"]):
                 raise ManagementDenied("tenant quota is exhausted")
             reservation_id = str(uuid.uuid4())
             expiry = now + timedelta(minutes=5)
@@ -1157,14 +1265,18 @@ class ManagementStore:
             )
             row = cursor.fetchone()
             if row is None or row["request_digest"] != request_digest:
-                raise ManagementDenied("quota reservation is not authorized for this request")
+                raise ManagementDenied(
+                    "quota reservation is not authorized for this request"
+                )
             if row["status"] == "committed":
                 if int(row["committed_amount"]) != actual_amount:
                     raise ManagementConflict(
                         "quota reservation was already committed with different usage"
                     )
                 return dict(row)
-            if row["status"] != "reserved" or row["expires_at"] <= datetime.now(timezone.utc):
+            if row["status"] != "reserved" or row["expires_at"] <= datetime.now(
+                timezone.utc
+            ):
                 raise ManagementConflict("quota reservation is no longer active")
             if actual_amount > int(row["reserved_amount"]):
                 raise ManagementDenied("actual usage exceeds the reserved quota")
@@ -1197,11 +1309,17 @@ class ManagementStore:
                   (tenant_id, actor_kind, actor_id, action, outcome, reason_code, resource_ref)
                 VALUES (%s, 'workload', %s, 'quota.commit', 'allowed', 'reservation_reconciled', %s)
                 """,
-                (row["tenant_id"], workload_spiffe_id, f"{row['dimension']}:{reservation_id}"),
+                (
+                    row["tenant_id"],
+                    workload_spiffe_id,
+                    f"{row['dimension']}:{reservation_id}",
+                ),
             )
             return committed
 
-    def list_usage(self, tenant_id: str, actor: CustomerIdentity) -> list[dict[str, Any]]:
+    def list_usage(
+        self, tenant_id: str, actor: CustomerIdentity
+    ) -> list[dict[str, Any]]:
         with self._transaction() as cursor:
             cursor.execute(
                 """
@@ -1240,7 +1358,12 @@ class ManagementStore:
         if expires_at <= now or expires_at > now + timedelta(minutes=15):
             raise ManagementError("BYOC enrollment must expire within 15 minutes")
         with self._transaction() as cursor:
-            self._scope(cursor, actor, request.tenant_id, ("platform_admin", "deployment_operator"))
+            self._scope(
+                cursor,
+                actor,
+                request.tenant_id,
+                ("platform_admin", "deployment_operator"),
+            )
             cursor.execute(
                 """
                 SELECT b.*, d.state
@@ -1263,7 +1386,9 @@ class ManagementStore:
                 },
             )
             if cursor.fetchone() is None:
-                raise ManagementDenied("BYOC enrollment target is not an active trusted binding")
+                raise ManagementDenied(
+                    "BYOC enrollment target is not an active trusted binding"
+                )
             cursor.execute(
                 """
                 SELECT * FROM management_byoc_enrollments
@@ -1282,7 +1407,9 @@ class ManagementStore:
                     or existing["local_policy_digest"] != request.local_policy_digest
                     or existing["expires_at"] != expires_at
                 ):
-                    raise ManagementConflict("BYOC enrollment idempotency key was reused")
+                    raise ManagementConflict(
+                        "BYOC enrollment idempotency key was reused"
+                    )
                 if existing["status"] != "pending" or existing["expires_at"] <= now:
                     raise ManagementConflict("BYOC enrollment is no longer active")
                 return dict(existing)
@@ -1368,7 +1495,8 @@ class ManagementStore:
                 or row["local_policy_digest"] != local_policy_digest
                 or row["binding_status"] != "active"
                 or row["execution_profile"] not in {"byoc", "byoc-localstack"}
-                or row["deployment_state"] in {"offboarding", "retention_pending", "deleted"}
+                or row["deployment_state"]
+                in {"offboarding", "retention_pending", "deleted"}
             ):
                 raise ManagementDenied("BYOC enrollment is not authorized")
             try:
@@ -1421,12 +1549,19 @@ class ManagementStore:
                 VALUES (%s, %s, 'connector', %s, 'connector.enroll', 'allowed',
                         'token_and_key_possession', %s)
                 """,
-                (row["tenant_id"], row["deployment_id"], workload_spiffe_id, enrollment_id),
+                (
+                    row["tenant_id"],
+                    row["deployment_id"],
+                    workload_spiffe_id,
+                    enrollment_id,
+                ),
             )
             return dict(connector)
 
     @staticmethod
-    def _byoc_connector(cursor, deployment_id: str, workload_spiffe_id: str) -> dict[str, Any]:
+    def _byoc_connector(
+        cursor, deployment_id: str, workload_spiffe_id: str
+    ) -> dict[str, Any]:
         cursor.execute(
             """
             SELECT c.*, d.incarnation, d.state AS deployment_state
@@ -1442,7 +1577,8 @@ class ManagementStore:
         if (
             row is None
             or not row["management_enabled"]
-            or row["deployment_state"] in {"offboarding", "retention_pending", "deleted"}
+            or row["deployment_state"]
+            in {"offboarding", "retention_pending", "deleted"}
         ):
             raise ManagementDenied("BYOC connector management access is revoked")
         return dict(row)
@@ -1466,7 +1602,9 @@ class ManagementStore:
                     -len(connector["connector_public_key"]) % 4
                 )
                 raw = base64.urlsafe_b64decode(padded.encode())
-                verifier = Ed25519Verifier(Ed25519PublicKey.from_public_bytes(raw), "byoc-health")
+                verifier = Ed25519Verifier(
+                    Ed25519PublicKey.from_public_bytes(raw), "byoc-health"
+                )
                 verifier.verify(unsigned, event.signature)
             except (ValueError, binascii.Error, ManagedSecurityError) as exc:
                 raise ManagementDenied("BYOC health signature is invalid") from exc
@@ -1493,10 +1631,16 @@ class ManagementStore:
                 raise ManagementConflict("BYOC health sequence is not contiguous")
             occurred_at = event.occurred_at.astimezone(timezone.utc)
             now = datetime.now(timezone.utc)
-            if occurred_at > now + timedelta(minutes=1) or occurred_at < now - timedelta(days=7):
-                raise ManagementDenied("BYOC health occurrence time is outside the accepted window")
+            if occurred_at > now + timedelta(
+                minutes=1
+            ) or occurred_at < now - timedelta(days=7):
+                raise ManagementDenied(
+                    "BYOC health occurrence time is outside the accepted window"
+                )
             payload = json.dumps(
-                event.payload.model_dump(mode="json"), separators=(",", ":"), sort_keys=True
+                event.payload.model_dump(mode="json"),
+                separators=(",", ":"),
+                sort_keys=True,
             )
             cursor.execute(
                 """
@@ -1533,7 +1677,12 @@ class ManagementStore:
                 VALUES (%s, %s, 'connector', %s, 'health.accept', 'allowed',
                         'signed_contiguous_event', %s)
                 """,
-                (connector["tenant_id"], deployment_id, workload_spiffe_id, str(event.sequence)),
+                (
+                    connector["tenant_id"],
+                    deployment_id,
+                    workload_spiffe_id,
+                    str(event.sequence),
+                ),
             )
             return {
                 "deployment_id": deployment_id,
@@ -1542,11 +1691,35 @@ class ManagementStore:
                 "duplicate": False,
             }
 
+    def authorize_byoc_certificate_rotation(
+        self, deployment_id: str, workload_spiffe_id: str
+    ) -> dict[str, Any]:
+        with self._transaction() as cursor:
+            connector = self._byoc_connector(cursor, deployment_id, workload_spiffe_id)
+            cursor.execute(
+                """
+                INSERT INTO management_byoc_audit
+                  (tenant_id, deployment_id, actor_kind, actor_id, action, outcome,
+                   reason_code, resource_ref)
+                VALUES (%s, %s, 'connector', %s, 'certificate.rotate', 'allowed',
+                        'active_connector_binding', %s)
+                """,
+                (
+                    connector["tenant_id"],
+                    deployment_id,
+                    workload_spiffe_id,
+                    str(connector["trust_version"]),
+                ),
+            )
+            return connector
+
     def revoke_byoc_management(
         self, tenant_id: str, deployment_id: str, actor: OperatorIdentity
     ) -> dict[str, Any]:
         with self._transaction() as cursor:
-            self._scope(cursor, actor, tenant_id, ("platform_admin", "deployment_operator"))
+            self._scope(
+                cursor, actor, tenant_id, ("platform_admin", "deployment_operator")
+            )
             cursor.execute(
                 """
                 UPDATE management_byoc_connectors
@@ -1560,7 +1733,9 @@ class ManagementStore:
             )
             connector = cursor.fetchone()
             if connector is None:
-                raise ManagementConflict("BYOC management is already revoked or not enrolled")
+                raise ManagementConflict(
+                    "BYOC management is already revoked or not enrolled"
+                )
             cursor.execute(
                 """
                 INSERT INTO management_byoc_audit

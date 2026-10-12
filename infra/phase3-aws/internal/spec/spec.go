@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"time"
 
 	"github.com/cyberphone/json-canonicalization/go/src/webpki.org/jsoncanonicalizer"
 )
@@ -102,34 +103,38 @@ type Manifest struct {
 }
 
 type Binding struct {
-	ExecutionProfile           string   `json:"execution_profile"`
-	LocalStackEndpoint         string   `json:"localstack_endpoint"`
-	BindingRef                 string   `json:"binding_ref"`
-	TenantID                   string   `json:"tenant_id"`
-	DeploymentID               string   `json:"deployment_id"`
-	AccountID                  string   `json:"account_id"`
-	RoleARN                    string   `json:"role_arn"`
-	ExternalID                 string   `json:"external_id"`
-	Region                     string   `json:"region"`
-	NetworkBindingRef          string   `json:"network_binding_ref"`
-	StateBindingRef            string   `json:"state_binding_ref"`
-	StateBackendURL            string   `json:"state_backend_url"`
-	SecretsProvider            string   `json:"secrets_provider"`
-	PulumiHome                 string   `json:"pulumi_home"`
-	WorkspaceRoot              string   `json:"workspace_root"`
-	ReceiptPrivateKeyPath      string   `json:"receipt_private_key_path"`
-	InfrastructureSourcePath   string   `json:"infrastructure_source_path"`
-	ReconcilerSPIFFEID         string   `json:"reconciler_spiffe_id"`
-	ManagementBaseURL          string   `json:"management_base_url"`
-	ManagementServerName       string   `json:"management_server_name"`
-	ManagementCAPath           string   `json:"management_ca_path"`
-	ManagementClientCertPath   string   `json:"management_client_cert_path"`
-	ManagementClientKeyPath    string   `json:"management_client_key_path"`
-	PermittedAvailabilityZones []string `json:"permitted_availability_zones"`
-	VpcCIDR                    string   `json:"vpc_cidr"`
-	PublicSubnetCIDRs          []string `json:"public_subnet_cidrs"`
-	PrivateSubnetCIDRs         []string `json:"private_subnet_cidrs"`
-	PublicIngressCIDRs         []string `json:"public_ingress_cidrs"`
+	ExecutionProfile            string   `json:"execution_profile"`
+	LocalStackEndpoint          string   `json:"localstack_endpoint"`
+	BindingRef                  string   `json:"binding_ref"`
+	TenantID                    string   `json:"tenant_id"`
+	DeploymentID                string   `json:"deployment_id"`
+	AccountID                   string   `json:"account_id"`
+	RoleARN                     string   `json:"role_arn"`
+	ExternalID                  string   `json:"external_id"`
+	KubeconfigCredentialProfile string   `json:"kubeconfig_credential_profile"`
+	Region                      string   `json:"region"`
+	NetworkBindingRef           string   `json:"network_binding_ref"`
+	StateBindingRef             string   `json:"state_binding_ref"`
+	StateBackendURL             string   `json:"state_backend_url"`
+	SecretsProvider             string   `json:"secrets_provider"`
+	PulumiHome                  string   `json:"pulumi_home"`
+	WorkspaceRoot               string   `json:"workspace_root"`
+	ReceiptPrivateKeyPath       string   `json:"receipt_private_key_path"`
+	InfrastructureSourcePath    string   `json:"infrastructure_source_path"`
+	ReconcilerSPIFFEID          string   `json:"reconciler_spiffe_id"`
+	ManagementBaseURL           string   `json:"management_base_url"`
+	ManagementServerName        string   `json:"management_server_name"`
+	ManagementCAPath            string   `json:"management_ca_path"`
+	ManagementClientCertPath    string   `json:"management_client_cert_path"`
+	ManagementClientKeyPath     string   `json:"management_client_key_path"`
+	PermittedAvailabilityZones  []string `json:"permitted_availability_zones"`
+	VpcCIDR                     string   `json:"vpc_cidr"`
+	PublicSubnetCIDRs           []string `json:"public_subnet_cidrs"`
+	PrivateSubnetCIDRs          []string `json:"private_subnet_cidrs"`
+	PublicIngressCIDRs          []string `json:"public_ingress_cidrs"`
+	ControlPlaneAccessCIDRs     []string `json:"control_plane_access_cidrs"`
+	ResourceExpiresAt           string   `json:"resource_expires_at"`
+	LifecycleState              string   `json:"lifecycle_state"`
 }
 
 func readStrict[T any](path string) (T, []byte, error) {
@@ -201,7 +206,7 @@ func Validate(m Manifest, b Binding) error {
 	}
 	switch b.ExecutionProfile {
 	case "aws":
-		if b.RoleARN == "" || b.ExternalID == "" || b.LocalStackEndpoint != "" {
+		if b.RoleARN == "" || b.ExternalID == "" || b.KubeconfigCredentialProfile == "" || b.LocalStackEndpoint != "" {
 			return fmt.Errorf("trusted AWS binding is incomplete")
 		}
 	case "localstack":
@@ -210,7 +215,7 @@ func Validate(m Manifest, b Binding) error {
 			(endpoint.Hostname() != "127.0.0.1" && endpoint.Hostname() != "localhost") || endpoint.Port() == "" {
 			return fmt.Errorf("LocalStack endpoint must be an explicit loopback HTTP endpoint")
 		}
-		if b.AccountID != "000000000000" || b.RoleARN != "" || b.ExternalID != "" ||
+		if b.AccountID != "000000000000" || b.RoleARN != "" || b.ExternalID != "" || b.KubeconfigCredentialProfile != "" ||
 			!regexp.MustCompile(`^file:///.+`).MatchString(b.StateBackendURL) || b.SecretsProvider != "passphrase" {
 			return fmt.Errorf("trusted LocalStack binding is incomplete")
 		}
@@ -229,6 +234,27 @@ func Validate(m Manifest, b Binding) error {
 	}
 	if len(b.PublicIngressCIDRs) != 0 {
 		return fmt.Errorf("public ingress is not implemented for this deployment profile")
+	}
+	if b.LifecycleState != "active" && b.LifecycleState != "offboarding" {
+		return fmt.Errorf("trusted lifecycle state must be active or offboarding")
+	}
+	if b.ExecutionProfile == "aws" {
+		if len(b.ControlPlaneAccessCIDRs) == 0 || len(b.ControlPlaneAccessCIDRs) > 4 {
+			return fmt.Errorf("AWS control-plane access must use a bounded trusted CIDR allowlist")
+		}
+		for _, value := range b.ControlPlaneAccessCIDRs {
+			prefix, parseErr := netip.ParsePrefix(value)
+			if parseErr != nil || (prefix.Addr().Is4() && prefix.Bits() != 32) || (prefix.Addr().Is6() && prefix.Bits() != 128) {
+				return fmt.Errorf("AWS control-plane access must use host CIDRs")
+			}
+		}
+		expiresAt, parseErr := time.Parse(time.RFC3339, b.ResourceExpiresAt)
+		now := time.Now().UTC()
+		if parseErr != nil || !expiresAt.After(now) || expiresAt.After(now.Add(7*24*time.Hour)) {
+			return fmt.Errorf("qualification resource expiry must be within seven days")
+		}
+	} else if len(b.ControlPlaneAccessCIDRs) != 0 || b.ResourceExpiresAt != "" {
+		return fmt.Errorf("LocalStack bindings cannot configure AWS qualification access or expiry")
 	}
 	vpc, err := netip.ParsePrefix(b.VpcCIDR)
 	if err != nil || len(b.PublicSubnetCIDRs) != len(b.PermittedAvailabilityZones) ||

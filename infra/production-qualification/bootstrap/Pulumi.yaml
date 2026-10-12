@@ -1,0 +1,3 @@
+name: vigil-production-qualification-bootstrap
+runtime: go
+description: Expiring AWS roles and state storage for real Vigil qualification environments

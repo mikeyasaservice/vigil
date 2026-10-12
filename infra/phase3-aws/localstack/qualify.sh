@@ -73,12 +73,12 @@ render_inputs() {
       region:"us-east-1",network_binding_ref:$network,state_binding_ref:$state,state_backend_url:$backend,
       secrets_provider:"passphrase",pulumi_home:$home,workspace_root:$workspace,
       receipt_private_key_path:$receipt_key,infrastructure_source_path:$source,
-      reconciler_spiffe_id:("spiffe://vigil.local/reconciler/"+$tenant),
-      management_base_url:"https://127.0.0.1:8444",management_server_name:"management.vigil.local",
+      reconciler_spiffe_id:("spiffe://autobot.local/reconciler/"+$tenant),
+      management_base_url:"https://127.0.0.1:8444",management_server_name:"management.autobot.local",
       management_ca_path:$ca,management_client_cert_path:$client_cert,
       management_client_key_path:$client_key,permitted_availability_zones:["us-east-1a","us-east-1b"],
       vpc_cidr:$vpc,public_subnet_cidrs:[$public_a,$public_b],private_subnet_cidrs:[$private_a,$private_b],
-      public_ingress_cidrs:[]}' >"$destination/binding.json"
+      public_ingress_cidrs:[],lifecycle_state:"active"}' >"$destination/binding.json"
 }
 
 pulumi_for() {

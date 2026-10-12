@@ -23,6 +23,7 @@ export function poolConfig(): PoolConfig {
     database: process.env["POSTGRES_DB"],
     user: process.env["POSTGRES_USER"],
     password: process.env["POSTGRES_PASSWORD"],
+    ...(process.env["POSTGRES_SSL_MODE"] === "require" ? { ssl: { rejectUnauthorized: true } } : {}),
   };
 }
 
@@ -30,7 +31,9 @@ export interface RedisConfig {
   host: string;
   port: number;
   db: number;
+  username?: string;
   password?: string;
+  tls?: Record<string, never>;
 }
 
 // The parts win, unlike poolConfig above: vigil.env hands every pod a REDIS_URL
@@ -54,6 +57,8 @@ export function redisConfig(): RedisConfig {
     host: url.hostname,
     port: Number(url.port || 6379),
     db: Number(url.pathname.slice(1) || 0),
+    ...(url.username === "" ? {} : { username: decodeURIComponent(url.username) }),
     ...(url.password === "" ? {} : { password: decodeURIComponent(url.password) }),
+    ...(url.protocol === "rediss:" ? { tls: {} } : {}),
   };
 }

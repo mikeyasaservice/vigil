@@ -72,6 +72,12 @@ from core.version import __version__
 
 logger = logging.getLogger(__name__)
 
+# Stable, product-scoped PostgreSQL advisory-lock key (ASCII "VIGIL"). Every
+# API worker may start at once, but only one may inspect and create schema
+# objects at a time. The transaction releases it automatically on success,
+# rollback, or process death.
+_SCHEMA_CREATE_LOCK = 0x564947494C
+
 
 # Secrets-store keys for the platform DB proxy. Read at boot before
 # the DB engine exists, so they must live in the encrypted secrets
@@ -740,7 +746,13 @@ class DatabaseManager:
             raise RuntimeError("Database not initialized. Call initialize() first.")
 
         try:
-            Base.metadata.create_all(self._engine)
+            with self._engine.begin() as connection:
+                if self._engine.dialect.name == "postgresql":
+                    connection.execute(
+                        text("SELECT pg_advisory_xact_lock(:lock_key)"),
+                        {"lock_key": _SCHEMA_CREATE_LOCK},
+                    )
+                Base.metadata.create_all(connection)
             logger.info("Database tables created successfully")
         except Exception as e:
             logger.error(f"Failed to create database tables: {e}")

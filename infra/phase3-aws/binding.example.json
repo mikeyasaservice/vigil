@@ -7,6 +7,7 @@
   "account_id": "111111111111",
   "role_arn": "arn:aws:iam::111111111111:role/VigilProvisioner",
   "external_id": "replace-through-secret-materialization",
+  "kubeconfig_credential_profile": "vigil-tenant-a",
   "region": "us-east-1",
   "network_binding_ref": "local:approved-network",
   "state_binding_ref": "local:approved-state",
@@ -16,7 +17,7 @@
   "workspace_root": "/var/lib/vigil/operations/tenant-a",
   "receipt_private_key_path": "/run/secrets/tenant-a-receipt-key",
   "infrastructure_source_path": "/opt/vigil/approved/phase3-aws",
-  "reconciler_spiffe_id": "spiffe://vigil.example/management/reconciler-a",
+  "reconciler_spiffe_id": "spiffe://autobot.example/management/reconciler-a",
   "management_base_url": "https://management.internal.example",
   "management_server_name": "management.internal.example",
   "management_ca_path": "/run/secrets/management-ca.pem",
@@ -26,5 +27,8 @@
   "vpc_cidr": "10.40.0.0/16",
   "public_subnet_cidrs": ["10.40.0.0/24", "10.40.1.0/24"],
   "private_subnet_cidrs": ["10.40.10.0/24", "10.40.11.0/24"],
-  "public_ingress_cidrs": []
+  "public_ingress_cidrs": [],
+  "control_plane_access_cidrs": ["203.0.113.10/32"],
+  "resource_expires_at": "replace-with-rfc3339-within-seven-days",
+  "lifecycle_state": "active"
 }

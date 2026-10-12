@@ -25,7 +25,7 @@ from cryptography.x509.oid import NameOID
 
 
 DATABASE_URL = "postgresql://postgres:phase3-local-only@127.0.0.1:55439/vigil_management"
-ISSUER = "https://issuer.vigil.local"
+ISSUER = "https://issuer.autobot.local"
 AUDIENCE = "vigil-management"
 
 
@@ -49,7 +49,7 @@ def issue_certificate(
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     names: list[x509.GeneralName] = []
     if server:
-        names.extend([x509.DNSName("management.vigil.local"), x509.IPAddress(ipaddress.ip_address("127.0.0.1"))])
+        names.extend([x509.DNSName("management.autobot.local"), x509.IPAddress(ipaddress.ip_address("127.0.0.1"))])
     if spiffe_id:
         names.append(x509.UniformResourceIdentifier(spiffe_id))
     now = datetime.now(timezone.utc)
@@ -94,7 +94,7 @@ def create_trust(trust: Path) -> dict[str, object]:
         .sign(ca_key, hashes.SHA256())
     )
     write(trust / "ca.pem", ca_cert.public_bytes(serialization.Encoding.PEM), 0o644)
-    server_cert, server_key = issue_certificate(ca_key, ca_cert, "management.vigil.local", server=True)
+    server_cert, server_key = issue_certificate(ca_key, ca_cert, "management.autobot.local", server=True)
     write(trust / "server.crt", server_cert, 0o644)
     write(trust / "server.key", server_key)
     operator_cert, operator_key = issue_certificate(ca_key, ca_cert, "qualification-operator")
@@ -103,7 +103,7 @@ def create_trust(trust: Path) -> dict[str, object]:
 
     receipt_public: dict[str, str] = {}
     for tenant in ("a", "b"):
-        spiffe_id = f"spiffe://vigil.local/reconciler/tenant-{tenant}"
+        spiffe_id = f"spiffe://autobot.local/reconciler/tenant-{tenant}"
         cert, key = issue_certificate(ca_key, ca_cert, f"reconciler-{tenant}", spiffe_id=spiffe_id)
         write(trust / f"reconciler-{tenant}.crt", cert, 0o644)
         write(trust / f"reconciler-{tenant}.key", key)

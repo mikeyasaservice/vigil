@@ -85,7 +85,7 @@ def client_on_a_domain():
 
     from services.api.main import app
 
-    with TestClient(app, base_url="http://vigil.example.com") as c:
+    with TestClient(app, base_url="http://autobot.example.com") as c:
         yield c
 
 

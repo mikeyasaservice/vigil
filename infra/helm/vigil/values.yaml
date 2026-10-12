@@ -336,8 +336,8 @@ postgresql:
     # Either set .existingSecret + .existingSecretKey OR provide password via secrets.postgresPassword.
     existingSecret: ""
     existingSecretKey: POSTGRES_PASSWORD
-    # Unused: Helm injects discrete POSTGRES_* vars, not a DSN. Require SSL with
-    # POSTGRES_SSL_MODE=require via extraConfig / extraEnv.
+    # Inject POSTGRES_SSL_MODE=require into applications and PGSSLMODE=require
+    # into migration/readiness jobs when using a managed external database.
     sslRequired: false
 
   # Bitnami postgresql subchart (issue #114). When enabled, the MVP in-chart
@@ -509,7 +509,7 @@ ingress:
     # nginx.ingress.kubernetes.io/proxy-body-size: "50m"
     # cert-manager.io/cluster-issuer: letsencrypt-prod
   hosts:
-    - host: vigil.local
+    - host: autobot.local
       paths:
         # Subdirectory deploys (e.g. /vigil) must set config.VIGIL_CONTEXT_PATH
         # to the same string; the chart does not derive one from the other.
@@ -518,7 +518,7 @@ ingress:
   tls: []
     # - secretName: vigil-tls
     #   hosts:
-    #     - vigil.example.com
+    #     - autobot.example.com
 
 # -----------------------------------------------------------------------------
 # Service account
@@ -715,7 +715,7 @@ config:
   SMTP_PORT: "587"
   SMTP_USER: ""
   SMTP_TLS: "true"
-  SMTP_FROM: "noreply@vigil.local"
+  SMTP_FROM: "noreply@autobot.local"
 
   # HTTP security headers + CORS
   VIGIL_CORS_ORIGINS: ""
@@ -932,6 +932,11 @@ networkPolicies:
   # chart keeps its historical permissive egress until callers provide a full
   # integration allow-list.
   managedExecution: false
+  # Private subnet CIDRs containing external tenant-local PostgreSQL and Valkey
+  # endpoints. Managed mode keeps this empty by default; AWS overlays must set
+  # only their bound private data subnets. Destination security groups remain
+  # the second enforcement layer.
+  managedDataServiceCIDRs: []
   # Namespace selector used to allow ingress traffic from the ingress
   # controller's namespace. Defaults match a common nginx-ingress install;
   # adjust if your controller runs elsewhere or lives in the same namespace.
@@ -987,7 +992,7 @@ pgadmin:
     tag: "latest"
     pullPolicy: IfNotPresent
   auth:
-    email: "admin@vigil.local"
+    email: "admin@autobot.local"
     existingSecret: ""
     password: "admin"
   resources:

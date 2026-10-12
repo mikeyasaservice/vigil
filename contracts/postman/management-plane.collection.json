@@ -814,6 +814,52 @@
       ]
     },
     {
+      "name": "rotateByocConnectorCertificate",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/internal/v1/byoc/deployments/{{deploymentId}}/certificate/rotate",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "internal",
+            "v1",
+            "byoc",
+            "deployments",
+            "{{deploymentId}}",
+            "certificate",
+            "rotate"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{{rotateByocConnectorCertificateBody}}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('response is JSON', () => pm.response.to.be.json);",
+              "pm.test('server did not fail open', () => pm.expect(pm.response.code).to.not.equal(500));"
+            ]
+          }
+        }
+      ]
+    },
+    {
       "name": "submitByocHealth",
       "request": {
         "method": "POST",

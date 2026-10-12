@@ -1,22 +1,34 @@
 package main
 
 import (
+	"context"
 	"crypto/ed25519"
 	"encoding/base64"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"syscall"
+	"time"
 
 	"vigil-byoc-aws/internal/connector"
 )
 
 func main() {
-	action := flag.String("action", "status", "init, status, or revoke")
+	action := flag.String("action", "status", "init, enroll, rotate, run, status, or revoke")
 	statePath := flag.String("state", "", "customer-owned authority state file")
 	keyPath := flag.String("key", "", "customer-owned Ed25519 private key file")
 	bindingPath := flag.String("binding", "", "trusted customer binding JSON")
+	managementURL := flag.String("management-url", "", "outbound management HTTPS origin")
+	serverName := flag.String("server-name", "", "management TLS server name")
+	caPath := flag.String("ca", "", "management CA bundle")
+	certPath := flag.String("cert", "", "connector or bootstrap client certificate")
+	tlsKeyPath := flag.String("tls-key", "", "customer-owned connector TLS private key")
+	enrollmentID := flag.String("enrollment-id", "", "one-use enrollment identifier")
+	enrollmentToken := flag.String("enrollment-token", "", "one-use enrollment bearer")
+	heartbeat := flag.Duration("heartbeat", time.Minute, "health heartbeat interval")
 	flag.Parse()
 	if *statePath == "" || *keyPath == "" || *bindingPath == "" {
 		fmt.Fprintln(os.Stderr, "state, key, and binding are required")
@@ -66,6 +78,63 @@ func main() {
 	if *action == "revoke" {
 		if err := authority.EmergencyRevoke(); err != nil {
 			fail(err)
+		}
+	} else if *action == "enroll" || *action == "rotate" || *action == "run" {
+		if *managementURL == "" || *serverName == "" || *caPath == "" || *certPath == "" || *tlsKeyPath == "" {
+			fail(fmt.Errorf("management-url, server-name, ca, cert, and tls-key are required"))
+		}
+		client, clientErr := connector.NewClient(connector.TransportConfig{
+			ManagementURL: *managementURL, ServerName: *serverName, SPIFFEID: binding.ConnectorSPIFFE,
+			CAPath: *caPath, CertPath: *certPath, KeyPath: *tlsKeyPath,
+		})
+		if clientErr != nil {
+			fail(clientErr)
+		}
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		csr, csrErr := connector.EnsureTLSKeyAndCSR(*tlsKeyPath, binding.ConnectorSPIFFE)
+		if csrErr != nil {
+			fail(csrErr)
+		}
+		if *action == "enroll" {
+			if *enrollmentID == "" || *enrollmentToken == "" {
+				fail(fmt.Errorf("enrollment-id and enrollment-token are required"))
+			}
+			_, signature, signErr := authority.SignEnrollment(*enrollmentID)
+			if signErr != nil {
+				fail(signErr)
+			}
+			response, enrollErr := client.Enroll(ctx, connector.EnrollmentRequest{
+				EnrollmentID: *enrollmentID, EnrollmentToken: *enrollmentToken,
+				AccountID: binding.AccountID, LocalPolicyDigest: binding.PolicyDigest,
+				ConnectorPublicKey: authority.PublicKeyBase64(), ProofSignature: signature,
+				CertificateSigningRequest: csr,
+			})
+			if enrollErr != nil {
+				fail(enrollErr)
+			}
+			if response.TenantID != binding.TenantID || response.DeploymentID != binding.DeploymentID || response.AccountID != binding.AccountID || response.ConnectorSPIFFEID != binding.ConnectorSPIFFE || !response.ManagementEnabled {
+				fail(fmt.Errorf("enrollment response does not match the customer binding"))
+			}
+			if err := connector.InstallCertificate(*certPath, *caPath, *tlsKeyPath, binding.ConnectorSPIFFE, response.CertificateResponse); err != nil {
+				fail(err)
+			}
+		} else if *action == "rotate" {
+			response, rotateErr := client.RotateCertificate(ctx, binding.DeploymentID, csr)
+			if rotateErr != nil {
+				fail(rotateErr)
+			}
+			if err := connector.InstallCertificate(*certPath, *caPath, *tlsKeyPath, binding.ConnectorSPIFFE, response); err != nil {
+				fail(err)
+			}
+		} else {
+			err := connector.Run(ctx, authority, client, connector.DaemonConfig{
+				HeartbeatInterval: *heartbeat, RetryMinimum: time.Second, RetryMaximum: time.Minute,
+				RotateBefore: 6 * time.Hour, CertPath: *certPath, CAPath: *caPath, TLSKeyPath: *tlsKeyPath,
+			})
+			if err != nil && ctx.Err() == nil {
+				fail(err)
+			}
 		}
 	} else if *action != "status" {
 		fail(fmt.Errorf("unsupported action %q", *action))

@@ -2,9 +2,10 @@
 
 Date: 2026-10-11. Branch: `codex/phase5-byoc`.
 
-This report covers the local BYOC checkpoint. It does not claim real AWS or
-customer operational readiness, and it does not promote any T01-T17 gate based
-only on LocalStack or unit tests.
+This report began as the local BYOC checkpoint. Real AWS development-account
+resource evidence and connector certificate/daemon tests are now summarized in
+the [AWS qualification report](aws-production-qualification-2026-10-12.md). It
+does not claim customer-owned AWS or customer operational readiness.
 
 ## Executed evidence
 

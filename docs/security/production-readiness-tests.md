@@ -1,9 +1,10 @@
 # Mandatory production-readiness validation
 
-Status: **all T01–T17 NOT RUN against the proposed platform**. These are executable
-test designs for future implementation, not fabricated passing tests. Existing unit
-tests and static architecture checks are recorded separately in
-[baseline validation](../architecture/reproducible-baseline.md).
+Status: **narrow real-AWS scenarios have run, but the complete T01–T17 gates are
+not passed**. Exact executed coverage and omissions are recorded in the
+[2026-10-12 AWS qualification report](../architecture/aws-production-qualification-2026-10-12.md).
+Do not promote a partial scenario to the full gate described below. Existing unit
+tests and static architecture checks remain separate in [baseline validation](../architecture/reproducible-baseline.md).
 
 ## Test harness and gate rules
 

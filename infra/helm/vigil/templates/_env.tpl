@@ -108,6 +108,10 @@ helper. Prefer the Secret when both are set.
 {{/* Runtime login; schema owner stays vigil.postgres.username (StatefulSet, db-init). */}}
 - name: POSTGRES_USER
   value: {{ $postgresUser | quote }}
+{{- if and (not $context.Values.postgresql.enabled) $context.Values.postgresql.external.sslRequired }}
+- name: POSTGRES_SSL_MODE
+  value: require
+{{- end }}
 {{- if $context.Values.redis.bitnami.enabled }}
 {{- if $context.Values.redis.bitnami.auth.enabled }}
 - name: REDIS_PASSWORD

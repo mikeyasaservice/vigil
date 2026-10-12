@@ -46,7 +46,7 @@ CONTROLS = [
     "PASSWORD_RESET_TTL_SECONDS: 3600",
     "VIGIL_RUN_ID=7f3c2a10-9d4e-4b8a-a1c5-0e6d2b9f4a37",
     "image_digest: sha256:" + "9f86d081884c7d659a2feaa0c55ad015" * 2,
-    "CORS_ORIGINS=http://localhost:6988,https://vigil.example.com/app",
+    "CORS_ORIGINS=http://localhost:6988,https://autobot.example.com/app",
     "2026-10-05 12:00:00,123 - vigil.daemon - INFO - polled https://api.example.com/v1/x",
     'INFO:     10.0.0.5:4242 - "GET /api/health HTTP/1.1" 200 OK',
     "git+ssh://git@github.com/Vigil-SOC/vigil.git",

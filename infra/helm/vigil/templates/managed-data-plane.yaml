@@ -3,6 +3,7 @@
 {{- $ns := .Release.Namespace -}}
 {{- $td := required "managedExecution.trustDomain is required" .Values.managedExecution.trustDomain -}}
 {{- $trust := required "managedExecution.trustSecretName is required" .Values.managedExecution.trustSecretName -}}
+{{- $envoyChecksum := include (print $.Template.BasePath "/managed-envoy-configmap.yaml") . | sha256sum -}}
 {{- $workerId := printf "spiffe://%s/ns/%s/sa/%s-agent-worker" $td $ns $root -}}
 {{- $securityId := printf "spiffe://%s/ns/%s/sa/%s-security" $td $ns $root -}}
 {{- range $component, $port := dict "security" .Values.managedExecution.security.servicePort "connector" .Values.managedExecution.connector.servicePort "reasoner" .Values.managedExecution.reasoner.servicePort }}
@@ -37,6 +38,8 @@ spec:
     metadata:
       labels:
         {{- include "vigil.componentSelectorLabels" (dict "context" . "component" "security") | nindent 8 }}
+      annotations:
+        checksum/managed-envoy: {{ $envoyChecksum }}
     spec:
       serviceAccountName: {{ $root }}-security
       automountServiceAccountToken: false
@@ -58,6 +61,9 @@ spec:
             - { name: PGPORT, value: {{ include "vigil.postgres.port" . | quote }} }
             - { name: PGDATABASE, value: {{ include "vigil.postgres.database" . | quote }} }
             - { name: PGUSER, value: vigil_security }
+            {{- if and (not .Values.postgresql.enabled) .Values.postgresql.external.sslRequired }}
+            - { name: PGSSLMODE, value: require }
+            {{- end }}
             - name: PGPASSWORD
               valueFrom: { secretKeyRef: { name: {{ include "vigil.postgres.passwordSecret" . }}, key: {{ include "vigil.postgres.passwordSecretKey" . }} } }
           command: ["/bin/sh", "-ec"]
@@ -79,6 +85,9 @@ spec:
             - { name: POSTGRES_PORT, value: {{ include "vigil.postgres.port" . | quote }} }
             - { name: POSTGRES_DB, value: {{ include "vigil.postgres.database" . | quote }} }
             - { name: POSTGRES_USER, value: vigil_security }
+            {{- if and (not .Values.postgresql.enabled) .Values.postgresql.external.sslRequired }}
+            - { name: POSTGRES_SSL_MODE, value: require }
+            {{- end }}
             - name: POSTGRES_PASSWORD
               valueFrom: { secretKeyRef: { name: {{ include "vigil.postgres.passwordSecret" . }}, key: {{ include "vigil.postgres.passwordSecretKey" . }} } }
             - name: VIGIL_MANAGED_AUTHORITY_PRIVATE_KEY
@@ -126,6 +135,8 @@ spec:
   template:
     metadata:
       labels: {{- include "vigil.componentSelectorLabels" (dict "context" . "component" "connector") | nindent 8 }}
+      annotations:
+        checksum/managed-envoy: {{ $envoyChecksum }}
     spec:
       serviceAccountName: {{ $root }}-connector
       automountServiceAccountToken: false
@@ -147,6 +158,9 @@ spec:
             - { name: PGPORT, value: {{ include "vigil.postgres.port" . | quote }} }
             - { name: PGDATABASE, value: {{ include "vigil.postgres.database" . | quote }} }
             - { name: PGUSER, value: vigil_connector }
+            {{- if and (not .Values.postgresql.enabled) .Values.postgresql.external.sslRequired }}
+            - { name: PGSSLMODE, value: require }
+            {{- end }}
             - name: PGPASSWORD
               valueFrom: { secretKeyRef: { name: {{ include "vigil.postgres.passwordSecret" . }}, key: {{ include "vigil.postgres.passwordSecretKey" . }} } }
           command: ["/bin/sh", "-ec"]
@@ -170,6 +184,9 @@ spec:
             - { name: POSTGRES_PORT, value: {{ include "vigil.postgres.port" . | quote }} }
             - { name: POSTGRES_DB, value: {{ include "vigil.postgres.database" . | quote }} }
             - { name: POSTGRES_USER, value: vigil_connector }
+            {{- if and (not .Values.postgresql.enabled) .Values.postgresql.external.sslRequired }}
+            - { name: POSTGRES_SSL_MODE, value: require }
+            {{- end }}
             - name: POSTGRES_PASSWORD
               valueFrom: { secretKeyRef: { name: {{ include "vigil.postgres.passwordSecret" . }}, key: {{ include "vigil.postgres.passwordSecretKey" . }} } }
             - name: VIGIL_IDENTITY_PROXY_TOKEN
@@ -213,6 +230,8 @@ spec:
   template:
     metadata:
       labels: {{- include "vigil.componentSelectorLabels" (dict "context" . "component" "reasoner") | nindent 8 }}
+      annotations:
+        checksum/managed-envoy: {{ $envoyChecksum }}
     spec:
       serviceAccountName: {{ $root }}-reasoner
       automountServiceAccountToken: false

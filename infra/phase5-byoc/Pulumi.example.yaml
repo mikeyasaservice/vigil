@@ -1,4 +1,5 @@
 config:
+  vigil-byoc-aws:executionProfile: localstack
   vigil-byoc-aws:localstackEndpoint: http://127.0.0.1:4569
   vigil-byoc-aws:accountId: "111111111111"
   vigil-byoc-aws:tenantId: tenant-a

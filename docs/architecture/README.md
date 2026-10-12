@@ -51,6 +51,7 @@ customer demand has not yet been supplied.
    [current Phase 4 validation evidence](phase4-validation.md).
 10. [Phase 5 BYOC implementation](phase5-implementation.md) and
     [current Phase 5 validation evidence](phase5-validation.md).
+11. [Real AWS production qualification](aws-production-qualification-2026-10-12.md).
 
 ## Validation meaning
 

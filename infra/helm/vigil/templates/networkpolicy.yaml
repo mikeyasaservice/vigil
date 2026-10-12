@@ -324,6 +324,12 @@ spec:
             matchLabels:
               {{- include "vigil.componentSelectorLabels" (dict "context" . "component" "redis") | nindent 14 }}
       ports: [{ protocol: TCP, port: {{ .Values.redis.service.port }} }]
+    {{- range .Values.networkPolicies.managedDataServiceCIDRs }}
+    - to: [{ ipBlock: { cidr: {{ . | quote }} } }]
+      ports:
+        - { protocol: TCP, port: {{ $.Values.postgresql.service.port }} }
+        - { protocol: TCP, port: {{ $.Values.redis.service.port }} }
+    {{- end }}
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -349,6 +355,10 @@ spec:
             matchLabels:
               {{- include "vigil.componentSelectorLabels" (dict "context" . "component" "postgres") | nindent 14 }}
       ports: [{ protocol: TCP, port: {{ .Values.postgresql.service.port }} }]
+    {{- range .Values.networkPolicies.managedDataServiceCIDRs }}
+    - to: [{ ipBlock: { cidr: {{ . | quote }} } }]
+      ports: [{ protocol: TCP, port: {{ $.Values.postgresql.service.port }} }]
+    {{- end }}
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -387,6 +397,12 @@ spec:
             matchLabels:
               {{- include "vigil.componentSelectorLabels" (dict "context" . "component" "reasoner") | nindent 14 }}
       ports: [{ protocol: TCP, port: {{ .Values.managedExecution.reasoner.servicePort }} }]
+    {{- range .Values.networkPolicies.managedDataServiceCIDRs }}
+    - to: [{ ipBlock: { cidr: {{ . | quote }} } }]
+      ports:
+        - { protocol: TCP, port: {{ $.Values.postgresql.service.port }} }
+        - { protocol: TCP, port: {{ $.Values.redis.service.port }} }
+    {{- end }}
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -421,6 +437,10 @@ spec:
             matchLabels:
               {{- include "vigil.componentSelectorLabels" (dict "context" . "component" "connector") | nindent 14 }}
       ports: [{ protocol: TCP, port: {{ .Values.managedExecution.connector.servicePort }} }]
+    {{- range .Values.networkPolicies.managedDataServiceCIDRs }}
+    - to: [{ ipBlock: { cidr: {{ . | quote }} } }]
+      ports: [{ protocol: TCP, port: {{ $.Values.postgresql.service.port }} }]
+    {{- end }}
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -450,6 +470,10 @@ spec:
             matchLabels:
               {{- include "vigil.componentSelectorLabels" (dict "context" . "component" "postgres") | nindent 14 }}
       ports: [{ protocol: TCP, port: {{ .Values.postgresql.service.port }} }]
+    {{- range .Values.networkPolicies.managedDataServiceCIDRs }}
+    - to: [{ ipBlock: { cidr: {{ . | quote }} } }]
+      ports: [{ protocol: TCP, port: {{ $.Values.postgresql.service.port }} }]
+    {{- end }}
     {{- range .Values.managedExecution.connector.allowedCIDRs }}
     - to: [{ ipBlock: { cidr: {{ . | quote }} } }]
     {{- end }}

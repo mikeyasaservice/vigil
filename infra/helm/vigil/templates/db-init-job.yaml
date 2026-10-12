@@ -45,6 +45,10 @@ spec:
               value: {{ include "vigil.postgres.database" . }}
             - name: PGUSER
               value: {{ include "vigil.postgres.username" . }}
+            {{- if and (not .Values.postgresql.enabled) .Values.postgresql.external.sslRequired }}
+            - name: PGSSLMODE
+              value: require
+            {{- end }}
             - name: PGPASSWORD
               valueFrom:
                 secretKeyRef:

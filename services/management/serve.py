@@ -95,7 +95,13 @@ def configuration() -> Config:
         except (ValueError, TypeError, binascii.Error) as exc:
             raise RuntimeError("VIGIL_BYOC_ENROLLMENT_SECRET is invalid") from exc
         if len(enrollment_secret) < 32:
-            raise RuntimeError("VIGIL_BYOC_ENROLLMENT_SECRET must contain at least 32 bytes")
+            raise RuntimeError(
+                "VIGIL_BYOC_ENROLLMENT_SECRET must contain at least 32 bytes"
+            )
+        for name in ("VIGIL_BYOC_CA_CERT_PATH", "VIGIL_BYOC_CA_KEY_PATH"):
+            path = required(name)
+            if not os.path.isfile(path):
+                raise RuntimeError(f"{name} is not a readable file")
 
     config = Config()
     config.bind = [os.getenv("VIGIL_MANAGEMENT_BIND", "0.0.0.0:8443")]

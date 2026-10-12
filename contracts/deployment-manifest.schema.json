@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://vigil.example/contracts/deployment-manifest-v1.json",
+  "$id": "https://autobot.example/contracts/deployment-manifest-v1.json",
   "title": "Vigil managed DeploymentManifest",
   "type": "object",
   "additionalProperties": false,

@@ -8,6 +8,7 @@ job persistence and retries.
 import asyncio
 import logging
 from typing import Any, Dict, Optional
+from urllib.parse import unquote
 
 from arq import create_pool
 from arq.connections import ArqRedis, RedisSettings
@@ -28,16 +29,17 @@ def redis_settings() -> RedisSettings:
     the queue it drains is the one the gateway enqueues onto.
     """
     url = get_settings().redis_url or DEFAULT_REDIS_URL
-    # Parse redis://host:port/db
-    from urllib.parse import urlparse
-
-    parsed = urlparse(url)
-    return RedisSettings(
-        host=parsed.hostname or "localhost",
-        port=parsed.port or 6379,
-        database=int(parsed.path.lstrip("/") or 0),
-        password=parsed.password,
-    )
+    # Keep transport and ACL details from the trusted runtime binding.  Manual
+    # parsing previously downgraded rediss:// to plaintext and discarded the
+    # username required by ElastiCache Serverless RBAC.
+    settings = RedisSettings.from_dsn(url)
+    # ARQ preserves percent escapes in userinfo; decode them so generated
+    # passwords containing URL-reserved characters authenticate correctly.
+    if settings.username is not None:
+        settings.username = unquote(settings.username)
+    if settings.password is not None:
+        settings.password = unquote(settings.password)
+    return settings
 
 
 # ---------------------------------------------------------------------------

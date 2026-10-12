@@ -14,7 +14,7 @@ import (
 	"vigil-byoc-aws/internal/spec"
 )
 
-func providerArgs(endpoint, accountID string) *aws.ProviderArgs {
+func localstackProviderArgs(endpoint, accountID string) *aws.ProviderArgs {
 	value := pulumi.String(endpoint)
 	return &aws.ProviderArgs{
 		Region: pulumi.String("us-east-1"), AccessKey: pulumi.String(accountID), SecretKey: pulumi.String("localstack-only"),
@@ -27,33 +27,58 @@ func providerArgs(endpoint, accountID string) *aws.ProviderArgs {
 	}
 }
 
+func realProviderArgs(region, profile, accountID string) *aws.ProviderArgs {
+	return &aws.ProviderArgs{
+		Region: pulumi.String(region), Profile: pulumi.String(profile),
+		AllowedAccountIds:    pulumi.StringArray{pulumi.String(accountID)},
+		SkipMetadataApiCheck: pulumi.Bool(true),
+	}
+}
+
 func main() {
 	pulumi.Run(func(ctx *pulumi.Context) error {
 		cfg := config.New(ctx, "")
-		endpoint := cfg.Require("localstackEndpoint")
+		executionProfile := cfg.Get("executionProfile")
+		if executionProfile == "" {
+			executionProfile = "localstack"
+		}
+		endpoint := cfg.Get("localstackEndpoint")
 		accountID := cfg.Require("accountId")
+		platformAccountID := cfg.Get("platformAccountId")
+		region := cfg.Get("region")
+		if region == "" {
+			region = "us-east-1"
+		}
+		awsProfile := cfg.Get("awsProfile")
 		tenantID := cfg.Require("tenantId")
 		deploymentID := cfg.Require("deploymentId")
 		acknowledgement := cfg.Require("ownershipAcknowledgement")
-		if err := spec.Validate(endpoint, accountID, tenantID, deploymentID, acknowledgement); err != nil {
+		if err := spec.Validate(executionProfile, endpoint, accountID, platformAccountID, tenantID, deploymentID, acknowledgement); err != nil {
 			return err
 		}
-		provider, err := aws.NewProvider(ctx, "customer-account", providerArgs(endpoint, accountID), pulumi.Protect(false))
+		providerConfig := localstackProviderArgs(endpoint, accountID)
+		if executionProfile != "localstack" {
+			providerConfig = realProviderArgs(region, awsProfile, accountID)
+		}
+		provider, err := aws.NewProvider(ctx, "customer-account", providerConfig, pulumi.Protect(false))
 		if err != nil {
 			return err
 		}
 		child := []pulumi.ResourceOption{pulumi.Provider(provider)}
 		tags := pulumi.StringMap{
-			"vigil.io/tenant": pulumi.String(tenantID), "vigil.io/deployment": pulumi.String(deploymentID),
-			"vigil.io/ownership": pulumi.String("customer"), "vigil.io/mode": pulumi.String("byoc"),
+			"autobot.internal/tenant": pulumi.String(tenantID), "autobot.internal/deployment": pulumi.String(deploymentID),
+			"autobot.internal/ownership": pulumi.String("customer"), "autobot.internal/mode": pulumi.String("byoc"),
 		}
-		key, err := kms.NewKey(ctx, "customer-data", &kms.KeyArgs{Description: pulumi.String("Customer-owned Vigil BYOC key"), Tags: tags}, child...)
+		key, err := kms.NewKey(ctx, "customer-data", &kms.KeyArgs{
+			Description: pulumi.String("Customer-owned Autobot BYOC key"), Tags: tags,
+			EnableKeyRotation: pulumi.Bool(true), DeletionWindowInDays: pulumi.Int(7),
+		}, child...)
 		if err != nil {
 			return err
 		}
 		createBucket := func(name, suffix string) (*s3.BucketV2, error) {
 			bucket, createErr := s3.NewBucketV2(ctx, name, &s3.BucketV2Args{
-				Bucket: pulumi.String(fmt.Sprintf("vigil-byoc-%s-%s-%s", tenantID, suffix, ctx.Stack())), ForceDestroy: pulumi.Bool(true), Tags: tags,
+				Bucket: pulumi.String(fmt.Sprintf("autobot-byoc-%s-%s-%s", accountID, suffix, ctx.Stack())), ForceDestroy: pulumi.Bool(executionProfile != "aws"), Tags: tags,
 			}, child...)
 			if createErr != nil {
 				return nil, createErr
@@ -89,14 +114,14 @@ func main() {
 			return err
 		}
 		queue, err := sqs.NewQueue(ctx, "execution", &sqs.QueueArgs{
-			Name: pulumi.String("vigil-byoc-" + deploymentID), KmsMasterKeyId: key.Arn,
+			Name: pulumi.String("autobot-byoc-" + deploymentID), KmsMasterKeyId: key.Arn,
 			VisibilityTimeoutSeconds: pulumi.Int(300), MessageRetentionSeconds: pulumi.Int(1209600), Tags: tags,
 		}, child...)
 		if err != nil {
 			return err
 		}
 		secret, err := secretsmanager.NewSecret(ctx, "integration-reference", &secretsmanager.SecretArgs{
-			Name: pulumi.String("vigil/byoc/" + deploymentID + "/integration"), KmsKeyId: key.Arn, Tags: tags,
+			Name: pulumi.String("autobot/byoc/" + deploymentID + "/integration"), KmsKeyId: key.Arn, Tags: tags,
 		}, child...)
 		if err != nil {
 			return err
@@ -115,6 +140,7 @@ func main() {
 		ctx.Export("runtimePolicy", policy)
 		ctx.Export("customerOwnedState", pulumi.Bool(true))
 		ctx.Export("centralCredentialCopies", pulumi.Int(0))
+		ctx.Export("executionProfile", pulumi.String(executionProfile))
 		return nil
 	})
 }

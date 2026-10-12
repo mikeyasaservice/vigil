@@ -10,7 +10,7 @@ import { poolConfig, redisConfig } from "./core/db.js";
 import { healthPort, healthServer } from "./core/health.js";
 import { GatewayExhausted } from "./core/limiter.js";
 import { errorFields, logger } from "./core/log.js";
-import { jobIdFor, RUN_QUEUE, JOB_SCHEMA_VERSION, type RunJob } from "./contracts/job.js";
+import { jobIdFor, RUN_QUEUE, RUN_QUEUE_PREFIX, JOB_SCHEMA_VERSION, type RunJob } from "./contracts/job.js";
 import type { AgentEvent, CheckpointPayload, ResolutionPayload, RunPayload, TerminalHandoff } from "./contracts/events.js";
 import type { SpendPayload } from "./contracts/budget.js";
 import {
@@ -750,6 +750,7 @@ export function isFinalAttempt(attemptsMade: number, configuredAttempts: number 
 
 export interface Running {
   worker: Worker<RunJob>;
+  pool: pg.Pool;
   ledger: LedgerRepository;
   leases: LeaseRepository;
   close: () => Promise<void>;
@@ -780,6 +781,7 @@ export function startWorker(build: HarnessFactory = harnessFor): Running {
     isFinalAttempt(job.attemptsMade, job.opts.attempts),
   ), {
     connection,
+    prefix: RUN_QUEUE_PREFIX,
     concurrency: runConcurrency(),
     lockDuration: LEASE_TTL_MS * 10,
   });
@@ -798,7 +800,7 @@ export function startWorker(build: HarnessFactory = harnessFor): Running {
   // enqueues it.
   // Managed recovery is a signed, durable API operation. The standalone
   // watchdog cannot mint that authority, so it is not started in this profile.
-  const producer = watchdogEnabled() ? new Queue<RunJob>(RUN_QUEUE, { connection }) : undefined;
+  const producer = watchdogEnabled() ? new Queue<RunJob>(RUN_QUEUE, { connection, prefix: RUN_QUEUE_PREFIX }) : undefined;
   const sweeping = producer === undefined ? undefined : setInterval(() => {
     void sweepOnce(leases, producer).catch((error: unknown) => {
       // A sweep that could not read the table tries again next tick. Throwing here
@@ -808,7 +810,7 @@ export function startWorker(build: HarnessFactory = harnessFor): Running {
     });
   }, SWEEP_EVERY_MS);
 
-  return { worker, ledger, leases, close: async () => {
+  return { worker, pool, ledger, leases, close: async () => {
     if (sweeping !== undefined) clearInterval(sweeping);
     await worker.close();
     if (producer !== undefined) await producer.close();
@@ -820,11 +822,56 @@ export function startWorker(build: HarnessFactory = harnessFor): Running {
 // ioredis queues commands while it is offline, so a ping against a dropped
 // connection would sit in that queue until the probe timed out -- reporting a hang
 // where the connection state already says "not ready" for free.
-export function workerReady(worker: Worker<RunJob>): () => Promise<boolean> {
+export function workerReady(worker: Worker<RunJob>, pool?: pg.Pool): () => Promise<boolean> {
   return async () => {
     if (!worker.isRunning()) return false;
-    return (await worker.client).status === "ready";
+    if ((await worker.client).status !== "ready") return false;
+    if (pool !== undefined) {
+      try {
+        await pool.query("SELECT 1 FROM agent_run_leases LIMIT 0");
+      } catch {
+        return false;
+      }
+    }
+    return true;
   };
+}
+
+type Fetch = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
+
+function healthUrl(configured: string, fallback: string): string {
+  return new URL("/healthz", configured || fallback).toString();
+}
+
+// A managed worker must not construct its BullMQ consumer until both privileged
+// paths work through its loopback Envoy. Kubernetes readiness cannot provide this
+// gate: the queue consumer starts inside the process before the kubelet ever probes
+// the pod, and a sidecar can still be loading its SPIFFE material at that point.
+export async function managedDependenciesReady(fetcher: Fetch = fetch): Promise<boolean> {
+  if (process.env["VIGIL_EXECUTION_PROFILE"] !== "managed") return true;
+  const urls = [
+    healthUrl(process.env["VIGIL_MANAGED_GATEWAY_BASE_URL"] ?? "", "http://127.0.0.1:15001/v1"),
+    healthUrl(process.env["VIGIL_MANAGED_REASONER_URL"] ?? "", "http://127.0.0.1:15002/v1/evaluate"),
+  ];
+  try {
+    const responses = await Promise.all(urls.map((url) => fetcher(url, { signal: AbortSignal.timeout(2_000) })));
+    return responses.every((response) => response.ok);
+  } catch {
+    return false;
+  }
+}
+
+export async function waitForManagedDependencies(
+  fetcher: Fetch = fetch,
+  timeoutMs = Number(process.env["VIGIL_MANAGED_STARTUP_TIMEOUT_MS"] ?? 120_000),
+): Promise<void> {
+  if (process.env["VIGIL_EXECUTION_PROFILE"] !== "managed") return;
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await managedDependenciesReady(fetcher)) return;
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  throw new Error("managed security and reasoner paths did not become ready before startup deadline");
 }
 
 // Both the mirror and the answers endpoint hang off this one variable, and both go
@@ -838,17 +885,25 @@ function warnIfUnmirrored(): void {
   log.error("VIGIL_RUNS_URL is unset: run progress will not be mirrored to the backend and checkpoints cannot be answered");
 }
 
-if (process.argv[1] !== undefined && import.meta.url.endsWith(process.argv[1].split("/").pop() ?? "")) {
+async function runWorkerProcess(): Promise<void> {
   warnIfUnmirrored();
+  await waitForManagedDependencies();
   const running = startWorker();
   // Probes only. Chat moved to serve.ts when #635 split the two into Deployments
   // that scale on different things -- a queue's depth and an open connection count
   // have nothing to say to each other.
-  const probes = healthServer(workerReady(running.worker)).listen(healthPort());
+  const probes = healthServer(workerReady(running.worker, running.pool)).listen(healthPort());
   const stop = () => {
     probes.close();
     void running.close();
   };
   process.on("SIGTERM", stop);
   process.on("SIGINT", stop);
+}
+
+if (process.argv[1] !== undefined && import.meta.url.endsWith(process.argv[1].split("/").pop() ?? "")) {
+  void runWorkerProcess().catch((error: unknown) => {
+    log.error("worker startup failed", errorFields(error));
+    process.exitCode = 1;
+  });
 }

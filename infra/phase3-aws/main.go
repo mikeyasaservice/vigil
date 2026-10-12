@@ -21,12 +21,13 @@ func main() {
 			return err
 		}
 
+		defaultTags := pulumi.StringMap{
+			"vigil.io/tenant": pulumi.String(manifest.TenantID), "vigil.io/deployment": pulumi.String(manifest.DeploymentID),
+			"vigil.io/incarnation": pulumi.String(manifest.Incarnation), "vigil.io/managed": pulumi.String("true"),
+		}
 		providerArgs := &aws.ProviderArgs{
-			Region: pulumi.String(binding.Region),
-			DefaultTags: &aws.ProviderDefaultTagsArgs{Tags: pulumi.StringMap{
-				"vigil.io/tenant": pulumi.String(manifest.TenantID), "vigil.io/deployment": pulumi.String(manifest.DeploymentID),
-				"vigil.io/incarnation": pulumi.String(manifest.Incarnation), "vigil.io/managed": pulumi.String("true"),
-			}},
+			Region:      pulumi.String(binding.Region),
+			DefaultTags: &aws.ProviderDefaultTagsArgs{Tags: defaultTags},
 		}
 		if binding.ExecutionProfile == "localstack" {
 			endpoint := pulumi.String(binding.LocalStackEndpoint)
@@ -43,10 +44,11 @@ func main() {
 				Ec2: endpoint, Kms: endpoint, S3: endpoint, Secretsmanager: endpoint, Sqs: endpoint, Sts: endpoint,
 			}}
 		} else {
+			defaultTags["vigil.io/expires-at"] = pulumi.String(binding.ResourceExpiresAt)
 			providerArgs.AllowedAccountIds = pulumi.StringArray{pulumi.String(binding.AccountID)}
 			providerArgs.AssumeRoles = aws.ProviderAssumeRoleArray{aws.ProviderAssumeRoleArgs{
 				RoleArn: pulumi.String(binding.RoleARN), ExternalId: pulumi.ToSecret(pulumi.String(binding.ExternalID)).(pulumi.StringOutput).ToStringPtrOutput(),
-				SessionName: pulumi.String(fmt.Sprintf("vigil-%s", manifest.DeploymentID)), SourceIdentity: pulumi.String(manifest.DeploymentID),
+				SessionName: pulumi.String(fmt.Sprintf("vigil-%s", manifest.DeploymentID)),
 			}}
 		}
 		provider, err := aws.NewProvider(ctx, "tenant-aws", providerArgs)
@@ -83,6 +85,12 @@ func main() {
 		ctx.Export("redisIdentifier", deployment.RedisIdentifier)
 		ctx.Export("evidenceBucket", deployment.EvidenceBucket)
 		ctx.Export("keyArn", deployment.KeyARN)
+		ctx.Export("databaseEndpoint", deployment.DatabaseEndpoint)
+		ctx.Export("redisEndpoint", deployment.RedisEndpoint)
+		ctx.Export("runtimeSecretArn", deployment.RuntimeSecretARN)
+		ctx.Export("kubeconfig", pulumi.ToSecret(deployment.Kubeconfig))
+		ctx.Export("imageRepositories", deployment.ImageRepositories)
+		ctx.Export("externalSecretsRoleArn", deployment.ExternalSecretsRoleARN)
 		return nil
 	})
 }

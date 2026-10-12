@@ -116,7 +116,7 @@ async def lifespan(app: FastAPI):
     # Transport security is stated rather than left to the SDK. Its default
     # host is 127.0.0.1, and on that default it turns on DNS-rebinding
     # protection with an allow-list of localhost Host headers -- so a request
-    # arriving as vigil.example.com, or as a container or service name, is
+    # arriving as autobot.example.com, or as a container or service name, is
     # refused 421 before any of Vigil's own gates see it. That protection is
     # for the usual local MCP server, which has no authentication and could
     # otherwise be driven by a web page that rebound DNS to it. This surface

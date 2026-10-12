@@ -193,6 +193,13 @@ func Load(path string, expected Binding, publicKey ed25519.PublicKey, privateKey
 
 func (a *Authority) State() State { return a.state }
 
+func (a *Authority) OldestHealth() (HealthEvent, bool) {
+	if len(a.state.Outbox) == 0 {
+		return HealthEvent{}, false
+	}
+	return a.state.Outbox[0], true
+}
+
 func (a *Authority) PublicKeyBase64() string {
 	return base64.RawURLEncoding.EncodeToString(a.publicKey)
 }

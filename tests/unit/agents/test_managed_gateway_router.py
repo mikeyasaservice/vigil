@@ -25,7 +25,7 @@ from core.agents.managed_execution import (
 )
 
 
-WORKLOAD = "spiffe://tenant-a.vigil.example/ns/tenant-a/sa/vigil-worker"
+WORKLOAD = "spiffe://tenant-a.autobot.example/ns/tenant-a/sa/vigil-worker"
 
 
 def _request(**scope_values: object) -> Request:

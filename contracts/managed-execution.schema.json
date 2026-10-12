@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://vigil.example/contracts/managed-execution-v3.json",
+  "$id": "https://autobot.example/contracts/managed-execution-v3.json",
   "title": "Managed execution queue envelope v3",
   "type": "object",
   "required": ["schema_version", "admission", "execution_id", "reason", "references", "signature"],
