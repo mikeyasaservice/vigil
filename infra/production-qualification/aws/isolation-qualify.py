@@ -215,7 +215,7 @@ from core.storage.connection import get_db_session, init_database
 init_database(create_tables=False)
 subject=os.environ["QUAL_SUBJECT"]
 with get_db_session() as session:
-  user=session.execute(text("SELECT user_id,username,email,role_id FROM users WHERE user_id=CAST(:subject AS uuid)"),{"subject":subject}).mappings().one()
+  user=session.execute(text("SELECT user_id,username,email,role_id FROM users WHERE user_id=:subject"),{"subject":subject}).mappings().one()
 now=int(time.time())
 base={"user_id":str(user["user_id"]),"username":user["username"],"email":user["email"],
   "role_id":str(user["role_id"]),"token_type":"access","jti":uuid.uuid4().hex,

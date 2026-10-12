@@ -5,6 +5,9 @@ RUN pip install --no-cache-dir -r /app/services/connector/requirements.lock \
     && groupadd -g 1000 vigil \
     && useradd -u 1000 -g 1000 -d /home/vigil -m -s /sbin/nologin vigil
 COPY --chown=vigil:vigil services/connector/ /app/services/connector/
+COPY --chown=vigil:vigil core/__init__.py /app/core/__init__.py
+COPY --chown=vigil:vigil core/memory/__init__.py core/memory/entity_keys.py \
+    core/memory/recall_contract.py core/memory/tlds.py /app/core/memory/
 USER 1000:1000
 ENV HOME=/home/vigil PYTHONPATH=/app PYTHONUNBUFFERED=1
 EXPOSE 8083

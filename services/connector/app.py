@@ -15,6 +15,8 @@ from psycopg2.extras import RealDictCursor
 from fastapi import FastAPI, Header, HTTPException, Request
 from pydantic import BaseModel, Field
 
+from services.connector.memory import recall_entity as managed_recall_entity
+
 
 class ConnectorInvokeRequest(BaseModel):
     tool: str = Field(min_length=1)
@@ -70,8 +72,6 @@ def _read(body: ConnectorInvokeRequest) -> list[dict[str, Any]]:
         # the audit attribution.  The connector still uses the shared recall
         # implementation so caps, ordering and the read-log contract cannot
         # drift between standalone and managed execution.
-        from core.memory.recall import recall_entity
-
         args = {
             "entity_keys": body.args.get("entity_keys"),
             "entity_key": body.args.get("entity_key"),
@@ -79,7 +79,15 @@ def _read(body: ConnectorInvokeRequest) -> list[dict[str, Any]]:
             "caller_kind": "execution",
             "caller_id": body.execution_id,
         }
-        return [recall_entity(args)]
+        with _connection() as connection:
+            return [
+                managed_recall_entity(
+                    connection,
+                    args,
+                    max_rows=body.max_rows,
+                    timeout_ms=body.timeout_ms,
+                )
+            ]
 
     with _connection() as connection, connection.cursor(cursor_factory=RealDictCursor) as cursor:
         cursor.execute("SET TRANSACTION READ ONLY")

@@ -263,6 +263,8 @@ case "${1:-deploy}" in
     ;;
   apps)
     for tenant in a b; do prepare_kubeconfig "$tenant"; done
+    render_tenant a '10.64.16.0/20,10.64.32.0/20'
+    render_tenant b '10.80.16.0/20,10.80.32.0/20'
     install_vigil a
     install_vigil b
     ;;
