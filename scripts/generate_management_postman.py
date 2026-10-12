@@ -19,6 +19,10 @@ def variable_path(path: str) -> str:
         .replace("{operation_id}", "{{operationId}}")
         .replace("{tenant_id}", "{{tenantId}}")
         .replace("{reservation_id}", "{{reservationId}}")
+        .replace("{provider_id}", "{{providerId}}")
+        .replace("{external_id}", "{{externalId}}")
+        .replace("{request_id}", "{{accessRequestId}}")
+        .replace("{session_id}", "{{supportSessionId}}")
     )
 
 
@@ -36,6 +40,10 @@ def main() -> None:
                 headers.append({"key": "Authorization", "value": "Bearer {{operatorToken}}"})
             if any("customerBearer" in requirement for requirement in security):
                 headers.append({"key": "Authorization", "value": "Bearer {{customerToken}}"})
+            if any("scimBearer" in requirement for requirement in security):
+                headers.append({"key": "Authorization", "value": "Bearer {{scimToken}}"})
+            if any("supportSession" in requirement for requirement in security):
+                headers.append({"key": "X-Autobot-Support-Session", "value": "{{supportSessionToken}}"})
             if any("reconcilerWorkload" in requirement for requirement in security):
                 headers.append({"key": "X-Vigil-Runner-Id", "value": "{{runnerId}}"})
             if "requestBody" in operation:
@@ -69,7 +77,7 @@ def main() -> None:
             )
     collection = {
         "info": {
-            "name": "Vigil Management Plane (local)",
+            "name": "Autobot Management Plane (local)",
             "description": "Generated from contracts/management-plane.openapi.yaml. Keep credentials in a local environment; do not publish this collection.",
             "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
         },
@@ -78,9 +86,15 @@ def main() -> None:
             {"key": "deploymentId", "value": "deployment-example-a"},
             {"key": "operationId", "value": "00000000-0000-4000-8000-000000000000"},
             {"key": "reservationId", "value": "00000000-0000-4000-8000-000000000000"},
+            {"key": "providerId", "value": "workforce-primary"},
+            {"key": "externalId", "value": "operator-a"},
+            {"key": "accessRequestId", "value": "00000000-0000-4000-8000-000000000000"},
+            {"key": "supportSessionId", "value": "00000000-0000-4000-8000-000000000000"},
             {"key": "tenantId", "value": "tenant-example-a"},
             {"key": "operatorToken", "value": ""},
             {"key": "customerToken", "value": ""},
+            {"key": "scimToken", "value": ""},
+            {"key": "supportSessionToken", "value": ""},
             {"key": "runnerId", "value": "reconciler-local-1"},
             {"key": "idempotencyKey", "value": "local-provision-1"},
         ],

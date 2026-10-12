@@ -104,7 +104,7 @@ container and local PostgreSQL results above are supporting evidence only.
 | Gate group | Current state | Required next evidence |
 |---|---|---|
 | T01-T06 | NOT RUN | Deploy A/B application, worker, database, Redis, reasoner, gateway, connector and sinks; run positive and cross-target probes with colliding fixtures. |
-| T07-T08 | NOT RUN | Exercise operator JIT/expiry/revocation and signed-command tamper/replay against the deployed management/reconciler mTLS path and cloud audit logs. |
+| T07-T08 | T07 local managed qualification PASS; cloud NOT RUN | Redeploy the mTLS support gateway in AWS and exercise JIT/expiry/revocation plus signed-command tamper/replay against cloud audit logs. |
 | T09-T10 | NOT RUN | Partition management, expire central authority, restart data-plane services and measure the durable local revocation boundary. |
 | T11-T13 | NOT RUN | Install pinned releases; inject upgrade failures and resource pressure; verify program/policy rollback and unchanged peer SLO/state. |
 | T14-T15 | NOT RUN | Use real runtime database/IAM roles and inject canaries into logs, metrics, errors and support exports. |

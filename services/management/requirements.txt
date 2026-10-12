@@ -5,3 +5,4 @@ psycopg2-binary==2.9.12
 pydantic==2.13.4
 PyJWT==2.13.0
 rfc8785==0.0.2
+signxml==5.1.0

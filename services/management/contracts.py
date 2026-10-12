@@ -136,9 +136,7 @@ class DeploymentManifest(ClosedModel):
         if any(not _LOCAL_REF.fullmatch(value) for value in local_refs):
             raise ValueError("deployment references must be trusted local references")
         if not _APPROVED_REF.fullmatch(self.operations.rollback_compatibility_ref):
-            raise ValueError(
-                "rollback compatibility must be an approved sha256 reference"
-            )
+            raise ValueError("rollback compatibility must be an approved sha256 reference")
         if len(set(self.credentials.integration_secret_refs)) != len(
             self.credentials.integration_secret_refs
         ):
@@ -345,7 +343,7 @@ class BYOCHealthPayload(ClosedModel):
     backlog_count: int = Field(default=0, ge=0)
     dropped_count: int = Field(default=0, ge=0)
     storage_watermark_percent: int = Field(default=0, ge=0, le=100)
-    dspy_evaluation: "BYOCDSPyEvaluationReceipt | None" = None
+    dspy_evaluation: BYOCDSPyEvaluationReceipt | None = None
 
 
 class BYOCDSPyEvaluationReceipt(ClosedModel):
@@ -370,9 +368,7 @@ BYOCHealthPayload.model_rebuild()
 class BYOCHealthEvent(ClosedModel):
     incarnation: uuid.UUID
     sequence: int = Field(gt=0)
-    event_kind: Literal[
-        "heartbeat", "release", "capacity", "gap", "revocation", "dspy_evaluation"
-    ]
+    event_kind: Literal["heartbeat", "release", "capacity", "gap", "revocation", "dspy_evaluation"]
     occurred_at: datetime
     revocation_epoch: int = Field(gt=0)
     payload: BYOCHealthPayload
@@ -382,9 +378,7 @@ class BYOCHealthEvent(ClosedModel):
     def timezone_required(self):
         if self.occurred_at.tzinfo is None:
             raise ValueError("health occurrence time must include a timezone")
-        if (self.event_kind == "dspy_evaluation") != (
-            self.payload.dspy_evaluation is not None
-        ):
+        if (self.event_kind == "dspy_evaluation") != (self.payload.dspy_evaluation is not None):
             raise ValueError("DSPy evaluation payload is bound only to its event kind")
         return self
 
@@ -394,3 +388,127 @@ class BYOCHealthReceipt(ClosedModel):
     sequence: int = Field(gt=0)
     event_digest: str = Field(pattern=r"^[a-f0-9]{64}$")
     duplicate: bool
+
+
+class IdentityProviderRequest(ClosedModel):
+    provider_id: str = Field(pattern=r"^[a-z0-9][a-z0-9-]{2,62}$")
+    protocol: Literal["oidc", "saml"]
+    issuer: str = Field(min_length=8, max_length=1024)
+    audience: str = Field(min_length=1, max_length=512)
+    oidc_jwks: dict | None = None
+    oidc_algorithms: list[Literal["RS256", "ES256", "EdDSA"]] = Field(
+        default_factory=lambda: ["RS256"], min_length=1, max_length=3
+    )
+    required_acr: list[str] = Field(default_factory=list, max_length=8)
+    required_amr: list[str] = Field(default_factory=list, max_length=8)
+    saml_sso_url: str | None = Field(default=None, max_length=2048)
+    saml_entity_id: str | None = Field(default=None, max_length=1024)
+    saml_acs_url: str | None = Field(default=None, max_length=2048)
+    saml_signing_certificate: str | None = Field(default=None, max_length=16384)
+    max_session_seconds: int = Field(default=600, ge=60, le=600)
+
+    @model_validator(mode="after")
+    def protocol_material(self):
+        oidc = self.oidc_jwks is not None
+        saml = all(
+            (
+                self.saml_sso_url,
+                self.saml_entity_id,
+                self.saml_acs_url,
+                self.saml_signing_certificate,
+            )
+        )
+        if self.protocol == "oidc" and (not oidc or saml):
+            raise ValueError("OIDC providers require JWKS and cannot include SAML trust")
+        if self.protocol == "saml" and (oidc or not saml):
+            raise ValueError("SAML providers require complete SAML trust and no JWKS")
+        return self
+
+
+class SCIMTokenRequest(ClosedModel):
+    expires_at: datetime
+
+
+class SAMLLoginResponse(ClosedModel):
+    provider_id: str
+    request_id: str
+    relay_state: str
+    sso_url: str
+    saml_request: str
+    expires_at: datetime
+
+
+class SAMLAssertionRequest(ClosedModel):
+    saml_response: str = Field(min_length=128, max_length=262144)
+    relay_state: str = Field(min_length=32, max_length=512)
+
+
+class FederatedSessionResponse(ClosedModel):
+    access_token: str
+    token_type: Literal["Bearer"] = "Bearer"
+    expires_at: datetime
+
+
+class OperatorAccessRequest(ClosedModel):
+    tenant_id: str = Field(pattern=r"^[a-z0-9][a-z0-9-]{2,62}$")
+    deployment_id: str = Field(pattern=r"^[a-z0-9][a-z0-9-]{2,127}$")
+    access_kind: Literal["support", "break_glass"] = "support"
+    actions: list[str] = Field(min_length=1, max_length=16)
+    resources: list[str] = Field(min_length=1, max_length=32)
+    justification: str = Field(min_length=10, max_length=2000)
+    ticket_ref: str = Field(min_length=1, max_length=200)
+    incident_ref: str | None = Field(default=None, min_length=1, max_length=200)
+    duration_seconds: int = Field(ge=60, le=900)
+
+    @model_validator(mode="after")
+    def exact_scope(self):
+        values = [*self.actions, *self.resources]
+        if any(not value or "*" in value for value in values):
+            raise ValueError("operator access scopes must be explicit and cannot use wildcards")
+        if len(set(self.actions)) != len(self.actions) or len(set(self.resources)) != len(
+            self.resources
+        ):
+            raise ValueError("operator access scopes cannot contain duplicates")
+        if self.access_kind == "break_glass":
+            if not self.incident_ref or self.duration_seconds > 300:
+                raise ValueError(
+                    "break-glass access requires an incident and expires within five minutes"
+                )
+        elif self.incident_ref is not None:
+            raise ValueError("incident_ref is reserved for break-glass access")
+        return self
+
+
+class OperatorAccessApproval(ClosedModel):
+    request_digest: str = Field(pattern=r"^[a-f0-9]{64}$")
+
+
+class OperatorAccessAuthorization(ClosedModel):
+    action: str = Field(min_length=1, max_length=128)
+    resource: str = Field(min_length=1, max_length=512)
+
+    @model_validator(mode="after")
+    def exact_target(self):
+        if "*" in self.action or "*" in self.resource:
+            raise ValueError("authorization targets cannot use wildcards")
+        return self
+
+
+class OperatorAccessSessionResponse(ClosedModel):
+    session_id: uuid.UUID
+    request_id: uuid.UUID
+    tenant_id: str
+    deployment_id: str
+    expires_at: datetime
+    session_token: str
+
+
+class OperatorAccessDecision(ClosedModel):
+    allowed: bool
+    reason_code: str
+    tenant_id: str
+    deployment_id: str
+    action: str
+    resource: str
+    session_id: uuid.UUID
+    expires_at: datetime

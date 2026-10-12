@@ -5,7 +5,7 @@ services:
     image: postgres:16-alpine
     container_name: vigil-phase3-management-db
     ports:
-      - "127.0.0.1:55439:5432"
+      - "127.0.0.1:${PHASE3_MANAGEMENT_DB_PORT:-55439}:5432"
     environment:
       POSTGRES_DB: vigil_management
       POSTGRES_USER: postgres
@@ -20,7 +20,7 @@ services:
     image: localstack/localstack:4.8.1
     container_name: vigil-phase3-localstack-a
     ports:
-      - "127.0.0.1:4566:4566"
+      - "127.0.0.1:${PHASE3_LOCALSTACK_A_PORT:-4566}:4566"
     environment:
       SERVICES: ec2,kms,s3,secretsmanager,sqs,sts
       DEFAULT_REGION: us-east-1
@@ -38,7 +38,7 @@ services:
     image: localstack/localstack:4.8.1
     container_name: vigil-phase3-localstack-b
     ports:
-      - "127.0.0.1:4567:4566"
+      - "127.0.0.1:${PHASE3_LOCALSTACK_B_PORT:-4567}:4566"
     environment:
       SERVICES: ec2,kms,s3,secretsmanager,sqs,sts
       DEFAULT_REGION: us-east-1

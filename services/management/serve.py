@@ -9,7 +9,7 @@ import ssl
 
 from cryptography import x509
 from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 from cryptography.x509.oid import ExtensionOID
 from hypercorn.asyncio import serve
 from hypercorn.asyncio.tcp_server import TCPServer
@@ -59,11 +59,33 @@ def required(name: str) -> str:
 
 def configuration() -> Config:
     required("MANAGEMENT_DATABASE_URL")
-    required("VIGIL_MANAGEMENT_AUTH_ISSUER")
-    required("VIGIL_MANAGEMENT_AUTH_AUDIENCE")
-    required("VIGIL_MANAGEMENT_AUTH_PUBLIC_KEY")
-    if required("VIGIL_MANAGEMENT_AUTH_ALGORITHM") not in {"EdDSA", "RS256"}:
-        raise RuntimeError("VIGIL_MANAGEMENT_AUTH_ALGORITHM must be EdDSA or RS256")
+    identity_mode = os.getenv("AUTOBOT_ENTERPRISE_IDENTITY_MODE", "")
+    if identity_mode != "database":
+        raise RuntimeError(
+            "AUTOBOT_ENTERPRISE_IDENTITY_MODE=database is required for the managed service"
+        )
+    required("AUTOBOT_FEDERATED_SESSION_ISSUER")
+    required("AUTOBOT_FEDERATED_SESSION_AUDIENCE")
+    try:
+        federated_key = serialization.load_pem_private_key(
+            required("AUTOBOT_FEDERATED_SESSION_PRIVATE_KEY").encode(), password=None
+        )
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError("AUTOBOT_FEDERATED_SESSION_PRIVATE_KEY is invalid") from exc
+    if not isinstance(federated_key, Ed25519PrivateKey):
+        raise RuntimeError("AUTOBOT_FEDERATED_SESSION_PRIVATE_KEY must be Ed25519")
+    try:
+        federated_public = serialization.load_pem_public_key(
+            required("AUTOBOT_FEDERATED_SESSION_PUBLIC_KEY").encode()
+        )
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError("AUTOBOT_FEDERATED_SESSION_PUBLIC_KEY is invalid") from exc
+    if not isinstance(federated_public, Ed25519PublicKey) or federated_public.public_bytes(
+        serialization.Encoding.Raw, serialization.PublicFormat.Raw
+    ) != federated_key.public_key().public_bytes(
+        serialization.Encoding.Raw, serialization.PublicFormat.Raw
+    ):
+        raise RuntimeError("federated session signing keys do not match")
     public_key_from_private(required("VIGIL_MANAGEMENT_COMMAND_PRIVATE_KEY"))
     profile = os.getenv("VIGIL_MANAGEMENT_PROFILE", "managed-dedicated")
     if profile not in {"managed-dedicated", "shared-saas", "byoc-control"}:

@@ -49,3 +49,8 @@ map into [identity context](../architecture/tenant-identity-context.md). Session
 revocation must affect future actions and queued work, not only the next browser login.
 T07/T10/T17 validate these rules, including operator attempts to bypass elevation through
 fleet automation or a restored backup.
+
+The implemented database-backed federation, SCIM and JIT controls are specified in
+[enterprise identity and operator controls](enterprise-identity-operator-controls.md).
+The implementation preserves this document's stricter production requirements; local
+qualification does not promote the AWS T07 gate to passed.

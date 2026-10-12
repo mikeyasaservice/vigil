@@ -17,8 +17,8 @@ export PULUMI_CONFIG_PASSPHRASE="${PULUMI_CONFIG_PASSPHRASE:-vigil-localstack-de
 
 endpoint() {
   case "$1" in
-    a) printf '%s' 'http://127.0.0.1:4566' ;;
-    b) printf '%s' 'http://127.0.0.1:4567' ;;
+    a) printf 'http://127.0.0.1:%s' "${PHASE3_LOCALSTACK_A_PORT:-4566}" ;;
+    b) printf 'http://127.0.0.1:%s' "${PHASE3_LOCALSTACK_B_PORT:-4567}" ;;
     *) return 2 ;;
   esac
 }
@@ -176,7 +176,7 @@ case "${1:-all}" in
     mkdir -p "$work_root"
     "${compose[@]}" up -d --wait
     await_localstack a; await_localstack b
-    render_inputs a 4566 64; render_inputs b 4567 80
+    render_inputs a "${PHASE3_LOCALSTACK_A_PORT:-4566}" 64; render_inputs b "${PHASE3_LOCALSTACK_B_PORT:-4567}" 80
     provision a; provision b
     ;;
   test) test_boundaries ;;
@@ -184,7 +184,7 @@ case "${1:-all}" in
     mkdir -p "$work_root"
     "${compose[@]}" up -d --wait
     await_localstack a; await_localstack b
-    render_inputs a 4566 64; render_inputs b 4567 80
+    render_inputs a "${PHASE3_LOCALSTACK_A_PORT:-4566}" 64; render_inputs b "${PHASE3_LOCALSTACK_B_PORT:-4567}" 80
 	uv run --no-project --with-requirements "$repo_dir/services/management/requirements.txt" \
 		python "$script_dir/management_qualify.py" --repo "$repo_dir" --work-root "$work_root"
 	test_boundaries
@@ -194,7 +194,7 @@ case "${1:-all}" in
     mkdir -p "$work_root"
     "${compose[@]}" up -d --wait
     await_localstack a; await_localstack b
-    render_inputs a 4566 64; render_inputs b 4567 80
+    render_inputs a "${PHASE3_LOCALSTACK_A_PORT:-4566}" 64; render_inputs b "${PHASE3_LOCALSTACK_B_PORT:-4567}" 80
     provision a; provision b
     test_boundaries
     ;;

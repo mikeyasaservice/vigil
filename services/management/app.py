@@ -5,33 +5,46 @@ from datetime import datetime
 
 from cryptography import x509
 from cryptography.x509.oid import ExtensionOID
-from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
+from fastapi.responses import JSONResponse
 from services.management.auth import OperatorIdentity, current_operator
 from services.management.byoc import enrollment_material, issue_connector_certificate
 from services.management.commands import issue_reconcile_command
 from services.management.contracts import (
-    BYOCConnectorResponse,
     BYOCCertificateResponse,
     BYOCCertificateRotationRequest,
+    BYOCConnectorResponse,
     BYOCEnrollmentCompleteResponse,
     BYOCEnrollmentRequest,
     BYOCEnrollmentResponse,
     BYOCEnrollRequest,
     BYOCHealthEvent,
     BYOCHealthReceipt,
+    FederatedSessionResponse,
+    IdentityProviderRequest,
     OperationApproval,
     OperationFailure,
     OperationReceipt,
     OperationRequest,
+    OperatorAccessApproval,
+    OperatorAccessAuthorization,
+    OperatorAccessDecision,
+    OperatorAccessRequest,
+    OperatorAccessSessionResponse,
     PlanReadyRequest,
     QuotaCommitRequest,
     QuotaReservationRequest,
     QuotaReservationResponse,
     ReconcileClaimRequest,
     RouteTicketResponse,
+    SAMLAssertionRequest,
+    SAMLLoginResponse,
+    SCIMTokenRequest,
     TenantContextResponse,
     UsageWindowResponse,
 )
+from services.management.enterprise_identity import EnterpriseIdentityStore
+from services.management.operator_access import OperatorAccessStore
 from services.management.saas_auth import CustomerIdentity, current_customer
 from services.management.saas_tickets import issue_route_ticket
 from services.management.store import (
@@ -42,11 +55,19 @@ from services.management.store import (
     ManagementUnavailable,
 )
 
-app = FastAPI(title="Vigil management plane", version="5.0.0")
+app = FastAPI(title="Autobot Management Plane", version="6.0.0")
 
 
 def _store() -> ManagementStore:
     return ManagementStore()
+
+
+def _identity_store() -> EnterpriseIdentityStore:
+    return EnterpriseIdentityStore()
+
+
+def _operator_access_store() -> OperatorAccessStore:
+    return OperatorAccessStore()
 
 
 def _error(exc: Exception) -> HTTPException:
@@ -460,5 +481,329 @@ def revoke_byoc_management(
         return _serializable(
             _store().revoke_byoc_management(tenant_id, deployment_id, actor)
         )
+    except (ManagementError, ManagementUnavailable) as exc:
+        raise _error(exc) from exc
+
+
+@app.put("/v1/enterprise/identity-providers/{provider_id}")
+def configure_identity_provider(
+    provider_id: str,
+    body: IdentityProviderRequest,
+    actor: OperatorIdentity = Depends(current_operator),
+) -> dict:
+    if provider_id != body.provider_id:
+        raise HTTPException(status_code=409, detail="identity provider path mismatch")
+    try:
+        return _serializable(_identity_store().configure_provider(body, actor))
+    except (ManagementError, ManagementUnavailable) as exc:
+        raise _error(exc) from exc
+
+
+@app.post("/v1/enterprise/identity-providers/{provider_id}/scim-tokens", status_code=201)
+def create_scim_token(
+    provider_id: str,
+    body: SCIMTokenRequest,
+    actor: OperatorIdentity = Depends(current_operator),
+) -> dict:
+    try:
+        row, token = _identity_store().issue_scim_token(provider_id, body.expires_at, actor)
+        return {**_serializable(row), "token": token}
+    except (ManagementError, ManagementUnavailable) as exc:
+        raise _error(exc) from exc
+
+
+@app.get("/v1/sso/saml/{provider_id}/login", response_model=SAMLLoginResponse)
+def begin_saml_login(provider_id: str) -> dict:
+    try:
+        return _serializable(_identity_store().begin_saml_login(provider_id))
+    except (ManagementError, ManagementUnavailable) as exc:
+        raise _error(exc) from exc
+
+
+@app.post("/v1/sso/saml/{provider_id}/acs", response_model=FederatedSessionResponse)
+def consume_saml_assertion(provider_id: str, body: SAMLAssertionRequest) -> dict:
+    try:
+        token, expiry = _identity_store().consume_saml_assertion(
+            provider_id, body.saml_response, body.relay_state
+        )
+        return {"access_token": token, "token_type": "Bearer", "expires_at": expiry}
+    except (ManagementError, ManagementUnavailable) as exc:
+        raise _error(exc) from exc
+
+
+def _scim_provider(authorization: str | None) -> tuple[EnterpriseIdentityStore, str]:
+    store = _identity_store()
+    try:
+        return store, store.scim_provider(authorization)
+    except (ManagementError, ManagementUnavailable) as exc:
+        raise _error(exc) from exc
+
+
+@app.get("/scim/v2/ServiceProviderConfig")
+def scim_service_provider_config() -> JSONResponse:
+    return JSONResponse(
+        media_type="application/scim+json",
+        content={
+            "schemas": ["urn:ietf:params:scim:schemas:core:2.0:ServiceProviderConfig"],
+            "patch": {"supported": False},
+            "bulk": {"supported": False, "maxOperations": 0, "maxPayloadSize": 0},
+            "filter": {"supported": True, "maxResults": 1000},
+            "changePassword": {"supported": False},
+            "sort": {"supported": False},
+            "etag": {"supported": True},
+            "authenticationSchemes": [
+                {
+                    "type": "oauthbearertoken",
+                    "name": "SCIM bearer token",
+                    "description": "Provider-bound, expiring bearer token",
+                    "specUri": "https://www.rfc-editor.org/rfc/rfc6750",
+                    "primary": True,
+                }
+            ],
+        },
+    )
+
+
+@app.post("/scim/v2/Users", status_code=201)
+def create_scim_user(
+    body: dict,
+    authorization: str | None = Header(default=None),
+) -> JSONResponse:
+    store, provider_id = _scim_provider(authorization)
+    try:
+        row = store.upsert_scim_user(provider_id, body)
+        return JSONResponse(media_type="application/scim+json", status_code=201, content=row)
+    except (ManagementError, ManagementUnavailable) as exc:
+        raise _error(exc) from exc
+
+
+@app.put("/scim/v2/Users/{external_id}")
+def replace_scim_user(
+    external_id: str,
+    body: dict,
+    authorization: str | None = Header(default=None),
+) -> JSONResponse:
+    store, provider_id = _scim_provider(authorization)
+    try:
+        row = store.upsert_scim_user(provider_id, body, external_id)
+        return JSONResponse(media_type="application/scim+json", content=row)
+    except (ManagementError, ManagementUnavailable) as exc:
+        raise _error(exc) from exc
+
+
+@app.get("/scim/v2/Users/{external_id}")
+def get_scim_user(
+    external_id: str,
+    authorization: str | None = Header(default=None),
+) -> JSONResponse:
+    store, provider_id = _scim_provider(authorization)
+    try:
+        row = store.get_scim_user(provider_id, external_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="SCIM user not found")
+        return JSONResponse(media_type="application/scim+json", content=row)
+    except (ManagementError, ManagementUnavailable) as exc:
+        raise _error(exc) from exc
+
+
+@app.get("/scim/v2/Users")
+def list_scim_users(
+    filter_value: str | None = Query(default=None, alias="filter"),
+    authorization: str | None = Header(default=None),
+) -> JSONResponse:
+    store, provider_id = _scim_provider(authorization)
+    try:
+        rows = store.list_scim_users(provider_id, filter_value)
+        return JSONResponse(
+            media_type="application/scim+json",
+            content={
+                "schemas": ["urn:ietf:params:scim:api:messages:2.0:ListResponse"],
+                "totalResults": len(rows),
+                "startIndex": 1,
+                "itemsPerPage": len(rows),
+                "Resources": rows,
+            },
+        )
+    except (ManagementError, ManagementUnavailable) as exc:
+        raise _error(exc) from exc
+
+
+@app.delete("/scim/v2/Users/{external_id}", status_code=204)
+def delete_scim_user(
+    external_id: str,
+    authorization: str | None = Header(default=None),
+) -> None:
+    store, provider_id = _scim_provider(authorization)
+    try:
+        store.deactivate_scim_user(provider_id, external_id)
+    except (ManagementError, ManagementUnavailable) as exc:
+        raise _error(exc) from exc
+
+
+@app.post("/scim/v2/Groups", status_code=201)
+def create_scim_group(
+    body: dict,
+    authorization: str | None = Header(default=None),
+) -> JSONResponse:
+    store, provider_id = _scim_provider(authorization)
+    try:
+        row = store.upsert_scim_group(provider_id, body)
+        return JSONResponse(media_type="application/scim+json", status_code=201, content=row)
+    except (ManagementError, ManagementUnavailable) as exc:
+        raise _error(exc) from exc
+
+
+@app.put("/scim/v2/Groups/{external_id}")
+def replace_scim_group(
+    external_id: str,
+    body: dict,
+    authorization: str | None = Header(default=None),
+) -> JSONResponse:
+    store, provider_id = _scim_provider(authorization)
+    try:
+        row = store.upsert_scim_group(provider_id, body, external_id)
+        return JSONResponse(media_type="application/scim+json", content=row)
+    except (ManagementError, ManagementUnavailable) as exc:
+        raise _error(exc) from exc
+
+
+@app.get("/scim/v2/Groups/{external_id}")
+def get_scim_group(
+    external_id: str,
+    authorization: str | None = Header(default=None),
+) -> JSONResponse:
+    store, provider_id = _scim_provider(authorization)
+    try:
+        row = store.get_scim_group(provider_id, external_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="SCIM group not found")
+        return JSONResponse(media_type="application/scim+json", content=row)
+    except (ManagementError, ManagementUnavailable) as exc:
+        raise _error(exc) from exc
+
+
+@app.post("/v1/operator-access/requests", status_code=201)
+def request_operator_access(
+    body: OperatorAccessRequest,
+    actor: OperatorIdentity = Depends(current_operator),
+) -> dict:
+    try:
+        return _serializable(_operator_access_store().create_request(body, actor))
+    except (ManagementError, ManagementUnavailable) as exc:
+        raise _error(exc) from exc
+
+
+@app.post("/v1/operator-access/requests/{request_id}/customer-approve")
+def customer_approve_operator_access(
+    request_id: str,
+    body: OperatorAccessApproval,
+    actor: CustomerIdentity = Depends(current_customer),
+) -> dict:
+    try:
+        return _serializable(
+            _operator_access_store().customer_approve(request_id, body.request_digest, actor)
+        )
+    except (ManagementError, ManagementUnavailable) as exc:
+        raise _error(exc) from exc
+
+
+@app.post("/v1/operator-access/requests/{request_id}/provider-approve")
+def provider_approve_operator_access(
+    request_id: str,
+    body: OperatorAccessApproval,
+    actor: OperatorIdentity = Depends(current_operator),
+) -> dict:
+    try:
+        return _serializable(
+            _operator_access_store().provider_approve(request_id, body.request_digest, actor)
+        )
+    except (ManagementError, ManagementUnavailable) as exc:
+        raise _error(exc) from exc
+
+
+@app.post(
+    "/v1/operator-access/requests/{request_id}/activate",
+    response_model=OperatorAccessSessionResponse,
+)
+def activate_operator_access(
+    request_id: str,
+    actor: OperatorIdentity = Depends(current_operator),
+) -> dict:
+    try:
+        session, token = _operator_access_store().activate(request_id, actor)
+        return {
+            "session_id": session["session_id"],
+            "request_id": session["request_id"],
+            "tenant_id": session["tenant_id"],
+            "deployment_id": session["deployment_id"],
+            "expires_at": session["expires_at"],
+            "session_token": token,
+        }
+    except (ManagementError, ManagementUnavailable) as exc:
+        raise _error(exc) from exc
+
+
+@app.post(
+    "/internal/v1/operator-access/sessions/{session_id}/authorize",
+    response_model=OperatorAccessDecision,
+)
+def authorize_operator_access(
+    session_id: str,
+    body: OperatorAccessAuthorization,
+    request: Request,
+    session_token: str = Header(alias="X-Autobot-Support-Session"),
+    actor: OperatorIdentity = Depends(current_operator),
+) -> dict:
+    workload = _reconciler_identity(request)
+    try:
+        decision = _operator_access_store().authorize(
+            session_id, session_token, body.action, body.resource, actor, workload
+        )
+    except (ManagementError, ManagementUnavailable) as exc:
+        raise _error(exc) from exc
+    if not decision["allowed"]:
+        raise HTTPException(
+            status_code=403,
+            detail={"code": decision["reason_code"], "message": "operator access denied"},
+        )
+    return decision
+
+
+@app.post("/v1/operator-access/requests/{request_id}/revoke")
+def operator_revoke_access(
+    request_id: str,
+    actor: OperatorIdentity = Depends(current_operator),
+) -> dict:
+    try:
+        return _serializable(_operator_access_store().revoke_by_operator(request_id, actor))
+    except (ManagementError, ManagementUnavailable) as exc:
+        raise _error(exc) from exc
+
+
+@app.post("/v1/tenants/{tenant_id}/operator-access/requests/{request_id}/revoke")
+def customer_revoke_access(
+    tenant_id: str,
+    request_id: str,
+    actor: CustomerIdentity = Depends(current_customer),
+) -> dict:
+    try:
+        return _serializable(
+            _operator_access_store().revoke_by_customer(request_id, tenant_id, actor)
+        )
+    except (ManagementError, ManagementUnavailable) as exc:
+        raise _error(exc) from exc
+
+
+@app.get("/v1/tenants/{tenant_id}/operator-access/audit")
+def customer_operator_access_audit(
+    tenant_id: str,
+    limit: int = Query(default=200, ge=1, le=500),
+    actor: CustomerIdentity = Depends(current_customer),
+) -> list[dict]:
+    try:
+        return [
+            _serializable(row)
+            for row in _operator_access_store().list_customer_audit(tenant_id, actor, limit)
+        ]
     except (ManagementError, ManagementUnavailable) as exc:
         raise _error(exc) from exc

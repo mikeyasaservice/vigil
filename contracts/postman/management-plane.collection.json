@@ -1,6 +1,6 @@
 {
   "info": {
-    "name": "Vigil Management Plane (local)",
+    "name": "Autobot Management Plane (local)",
     "description": "Generated from contracts/management-plane.openapi.yaml. Keep credentials in a local environment; do not publish this collection.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
@@ -22,6 +22,22 @@
       "value": "00000000-0000-4000-8000-000000000000"
     },
     {
+      "key": "providerId",
+      "value": "workforce-primary"
+    },
+    {
+      "key": "externalId",
+      "value": "operator-a"
+    },
+    {
+      "key": "accessRequestId",
+      "value": "00000000-0000-4000-8000-000000000000"
+    },
+    {
+      "key": "supportSessionId",
+      "value": "00000000-0000-4000-8000-000000000000"
+    },
+    {
       "key": "tenantId",
       "value": "tenant-example-a"
     },
@@ -31,6 +47,14 @@
     },
     {
       "key": "customerToken",
+      "value": ""
+    },
+    {
+      "key": "scimToken",
+      "value": ""
+    },
+    {
+      "key": "supportSessionToken",
       "value": ""
     },
     {
@@ -931,6 +955,913 @@
             "{{deploymentId}}",
             "byoc",
             "revoke"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('response is JSON', () => pm.response.to.be.json);",
+              "pm.test('server did not fail open', () => pm.expect(pm.response.code).to.not.equal(500));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "configureEnterpriseIdentityProvider",
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{operatorToken}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/v1/enterprise/identity-providers/{{providerId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "v1",
+            "enterprise",
+            "identity-providers",
+            "{{providerId}}"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{{configureEnterpriseIdentityProviderBody}}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('response is JSON', () => pm.response.to.be.json);",
+              "pm.test('server did not fail open', () => pm.expect(pm.response.code).to.not.equal(500));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "createEnterpriseScimToken",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{operatorToken}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/v1/enterprise/identity-providers/{{providerId}}/scim-tokens",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "v1",
+            "enterprise",
+            "identity-providers",
+            "{{providerId}}",
+            "scim-tokens"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{{createEnterpriseScimTokenBody}}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('response is JSON', () => pm.response.to.be.json);",
+              "pm.test('server did not fail open', () => pm.expect(pm.response.code).to.not.equal(500));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "beginSamlLogin",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/v1/sso/saml/{{providerId}}/login",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "v1",
+            "sso",
+            "saml",
+            "{{providerId}}",
+            "login"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('response is JSON', () => pm.response.to.be.json);",
+              "pm.test('server did not fail open', () => pm.expect(pm.response.code).to.not.equal(500));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "consumeSamlAssertion",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/v1/sso/saml/{{providerId}}/acs",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "v1",
+            "sso",
+            "saml",
+            "{{providerId}}",
+            "acs"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{{consumeSamlAssertionBody}}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('response is JSON', () => pm.response.to.be.json);",
+              "pm.test('server did not fail open', () => pm.expect(pm.response.code).to.not.equal(500));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "getScimServiceProviderConfig",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/scim/v2/ServiceProviderConfig",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "scim",
+            "v2",
+            "ServiceProviderConfig"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('response is JSON', () => pm.response.to.be.json);",
+              "pm.test('server did not fail open', () => pm.expect(pm.response.code).to.not.equal(500));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "listScimUsers",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{scimToken}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/scim/v2/Users",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "scim",
+            "v2",
+            "Users"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('response is JSON', () => pm.response.to.be.json);",
+              "pm.test('server did not fail open', () => pm.expect(pm.response.code).to.not.equal(500));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "createScimUser",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{scimToken}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/scim/v2/Users",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "scim",
+            "v2",
+            "Users"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{{createScimUserBody}}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('response is JSON', () => pm.response.to.be.json);",
+              "pm.test('server did not fail open', () => pm.expect(pm.response.code).to.not.equal(500));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "getScimUser",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{scimToken}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/scim/v2/Users/{{externalId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "scim",
+            "v2",
+            "Users",
+            "{{externalId}}"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('response is JSON', () => pm.response.to.be.json);",
+              "pm.test('server did not fail open', () => pm.expect(pm.response.code).to.not.equal(500));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "replaceScimUser",
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{scimToken}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/scim/v2/Users/{{externalId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "scim",
+            "v2",
+            "Users",
+            "{{externalId}}"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{{replaceScimUserBody}}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('response is JSON', () => pm.response.to.be.json);",
+              "pm.test('server did not fail open', () => pm.expect(pm.response.code).to.not.equal(500));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "deactivateScimUser",
+      "request": {
+        "method": "DELETE",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{scimToken}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/scim/v2/Users/{{externalId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "scim",
+            "v2",
+            "Users",
+            "{{externalId}}"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('response is JSON', () => pm.response.to.be.json);",
+              "pm.test('server did not fail open', () => pm.expect(pm.response.code).to.not.equal(500));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "createScimGroup",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{scimToken}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/scim/v2/Groups",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "scim",
+            "v2",
+            "Groups"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{{createScimGroupBody}}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('response is JSON', () => pm.response.to.be.json);",
+              "pm.test('server did not fail open', () => pm.expect(pm.response.code).to.not.equal(500));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "getScimGroup",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{scimToken}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/scim/v2/Groups/{{externalId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "scim",
+            "v2",
+            "Groups",
+            "{{externalId}}"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('response is JSON', () => pm.response.to.be.json);",
+              "pm.test('server did not fail open', () => pm.expect(pm.response.code).to.not.equal(500));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "replaceScimGroup",
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{scimToken}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/scim/v2/Groups/{{externalId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "scim",
+            "v2",
+            "Groups",
+            "{{externalId}}"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{{replaceScimGroupBody}}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('response is JSON', () => pm.response.to.be.json);",
+              "pm.test('server did not fail open', () => pm.expect(pm.response.code).to.not.equal(500));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "requestOperatorAccess",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{operatorToken}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/v1/operator-access/requests",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "v1",
+            "operator-access",
+            "requests"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{{requestOperatorAccessBody}}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('response is JSON', () => pm.response.to.be.json);",
+              "pm.test('server did not fail open', () => pm.expect(pm.response.code).to.not.equal(500));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "customerApproveOperatorAccess",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{customerToken}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/v1/operator-access/requests/{{accessRequestId}}/customer-approve",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "v1",
+            "operator-access",
+            "requests",
+            "{{accessRequestId}}",
+            "customer-approve"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{{customerApproveOperatorAccessBody}}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('response is JSON', () => pm.response.to.be.json);",
+              "pm.test('server did not fail open', () => pm.expect(pm.response.code).to.not.equal(500));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "providerApproveOperatorAccess",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{operatorToken}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/v1/operator-access/requests/{{accessRequestId}}/provider-approve",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "v1",
+            "operator-access",
+            "requests",
+            "{{accessRequestId}}",
+            "provider-approve"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{{providerApproveOperatorAccessBody}}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('response is JSON', () => pm.response.to.be.json);",
+              "pm.test('server did not fail open', () => pm.expect(pm.response.code).to.not.equal(500));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "activateOperatorAccess",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{operatorToken}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/v1/operator-access/requests/{{accessRequestId}}/activate",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "v1",
+            "operator-access",
+            "requests",
+            "{{accessRequestId}}",
+            "activate"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('response is JSON', () => pm.response.to.be.json);",
+              "pm.test('server did not fail open', () => pm.expect(pm.response.code).to.not.equal(500));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "authorizeOperatorAccess",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{operatorToken}}"
+          },
+          {
+            "key": "X-Autobot-Support-Session",
+            "value": "{{supportSessionToken}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/internal/v1/operator-access/sessions/{{supportSessionId}}/authorize",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "internal",
+            "v1",
+            "operator-access",
+            "sessions",
+            "{{supportSessionId}}",
+            "authorize"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{{authorizeOperatorAccessBody}}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('response is JSON', () => pm.response.to.be.json);",
+              "pm.test('server did not fail open', () => pm.expect(pm.response.code).to.not.equal(500));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "revokeOperatorAccess",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{operatorToken}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/v1/operator-access/requests/{{accessRequestId}}/revoke",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "v1",
+            "operator-access",
+            "requests",
+            "{{accessRequestId}}",
+            "revoke"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('response is JSON', () => pm.response.to.be.json);",
+              "pm.test('server did not fail open', () => pm.expect(pm.response.code).to.not.equal(500));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "customerRevokeOperatorAccess",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{customerToken}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/v1/tenants/{{tenantId}}/operator-access/requests/{{accessRequestId}}/revoke",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "v1",
+            "tenants",
+            "{{tenantId}}",
+            "operator-access",
+            "requests",
+            "{{accessRequestId}}",
+            "revoke"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('response is JSON', () => pm.response.to.be.json);",
+              "pm.test('server did not fail open', () => pm.expect(pm.response.code).to.not.equal(500));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "listCustomerOperatorAccessAudit",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{customerToken}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/v1/tenants/{{tenantId}}/operator-access/audit",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "v1",
+            "tenants",
+            "{{tenantId}}",
+            "operator-access",
+            "audit"
           ]
         }
       },

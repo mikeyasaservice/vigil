@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"net/url"
 
 	"github.com/pulumi/pulumi-aws/sdk/v7/go/aws"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
@@ -61,6 +62,14 @@ func main() {
 		ctx.Export("deploymentId", pulumi.String(manifest.DeploymentID))
 		ctx.Export("generation", pulumi.Int(int(manifest.Generation)))
 		ctx.Export("executionProfile", pulumi.String(binding.ExecutionProfile))
+		spiffe, err := url.Parse(binding.ReconcilerSPIFFEID)
+		if err != nil || spiffe.Scheme != "spiffe" || spiffe.Host == "" {
+			return fmt.Errorf("reconciler SPIFFE trust domain is invalid")
+		}
+		ctx.Export(
+			"supportGatewaySpiffeId",
+			pulumi.String(fmt.Sprintf("spiffe://%s/support-gateway/%s", spiffe.Host, manifest.DeploymentID)),
+		)
 		if binding.ExecutionProfile == "localstack" {
 			deployment, createErr := tenant.NewLocalStackDeployment(ctx, "vigil-"+manifest.DeploymentID, tenant.DeploymentArgs{
 				Manifest: manifest, Binding: binding, Provider: provider,

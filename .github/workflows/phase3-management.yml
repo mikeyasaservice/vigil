@@ -57,6 +57,7 @@ jobs:
           tests/management/test_health.py
           tests/management/test_operator_auth.py
           tests/management/test_workload_identity.py
+          tests/management/test_operator_access_integration.py
           tests/management/test_store_integration.py
 
   aws-reconciler:

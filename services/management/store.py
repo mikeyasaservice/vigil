@@ -6,19 +6,19 @@ import hashlib
 import json
 import os
 import uuid
+from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import datetime, timedelta, timezone
-from typing import Any, Iterator
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import psycopg2
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
-from psycopg2.extras import RealDictCursor
-
 from core.agents.managed_execution import (
     Ed25519Verifier,
     ManagedSecurityError,
     managed_digest,
 )
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+from psycopg2.extras import RealDictCursor
 from services.management.auth import OperatorIdentity
 from services.management.byoc import enrollment_proof
 from services.management.contracts import (
@@ -384,7 +384,7 @@ class ManagementStore:
         plan_hash: str,
         expires_at: datetime,
     ) -> dict[str, Any]:
-        if expires_at.tzinfo is None or expires_at <= datetime.now(timezone.utc):
+        if expires_at.tzinfo is None or expires_at <= datetime.now(UTC):
             raise ManagementError("approval expiry must be in the future")
         with self._transaction() as cursor:
             cursor.execute(
@@ -499,7 +499,7 @@ class ManagementStore:
                 row["status"] == "claimed"
                 and row["claimed_phase"] == phase
                 and row["lease_expires_at"] is not None
-                and row["lease_expires_at"] <= datetime.now(timezone.utc)
+                and row["lease_expires_at"] <= datetime.now(UTC)
             )
             retryable = (
                 row["status"] == "recovery_required" and row["claimed_phase"] == phase
@@ -601,7 +601,7 @@ class ManagementStore:
                 raise ManagementConflict("plan claimant is stale")
             if row["lease_expires_at"] is None or row[
                 "lease_expires_at"
-            ] <= datetime.now(timezone.utc):
+            ] <= datetime.now(UTC):
                 raise ManagementConflict("plan claimant lease expired")
             if row["manifest_digest"] != digest:
                 raise ManagementConflict("plan digest does not match admitted manifest")
@@ -678,7 +678,7 @@ class ManagementStore:
                 raise ManagementConflict("receipt claimant is stale")
             if row["lease_expires_at"] is None or row[
                 "lease_expires_at"
-            ] <= datetime.now(timezone.utc):
+            ] <= datetime.now(UTC):
                 raise ManagementConflict("receipt claimant lease expired")
             signature = str(receipt.pop("signature", ""))
             expected = {
@@ -768,6 +768,55 @@ class ManagementStore:
             if deployment is None:
                 raise ManagementConflict(
                     "deployment fence advanced before receipt commit"
+                )
+            support_gateway_spiffe_id = receipt["resource_inventory"].get(
+                "supportGatewaySpiffeId"
+            )
+            if support_gateway_spiffe_id is not None:
+                if (
+                    not isinstance(support_gateway_spiffe_id, str)
+                    or not support_gateway_spiffe_id.startswith("spiffe://")
+                    or len(support_gateway_spiffe_id) > 255
+                ):
+                    raise ManagementDenied(
+                        "receipt support gateway workload identity is invalid"
+                    )
+                cursor.execute(
+                    """
+                    INSERT INTO management_support_gateway_bindings
+                      (tenant_id, deployment_id, gateway_spiffe_id)
+                    VALUES (%s, %s, %s)
+                    ON CONFLICT (tenant_id, deployment_id) DO UPDATE SET
+                      gateway_spiffe_id = EXCLUDED.gateway_spiffe_id,
+                      status = 'active', updated_at = now()
+                    """,
+                    (
+                        row["tenant_id"],
+                        row["deployment_id"],
+                        support_gateway_spiffe_id,
+                    ),
+                )
+            if row["operation_kind"] in {"suspend", "offboard", "delete"}:
+                cursor.execute(
+                    """
+                    UPDATE management_support_gateway_bindings
+                       SET status = 'revoked', updated_at = now()
+                     WHERE tenant_id = %s AND deployment_id = %s;
+                    UPDATE management_operator_access_requests
+                       SET status = 'revoked', revoked_at = now(),
+                           revoked_by_kind = 'system', updated_at = now()
+                     WHERE tenant_id = %s AND deployment_id = %s
+                       AND status IN ('pending_customer', 'pending_provider', 'approved', 'active');
+                    UPDATE management_operator_access_sessions
+                       SET status = 'revoked', revoked_at = now(),
+                           revocation_epoch = revocation_epoch + 1
+                     WHERE tenant_id = %s AND deployment_id = %s AND status = 'active'
+                    """,
+                    (
+                        row["tenant_id"], row["deployment_id"],
+                        row["tenant_id"], row["deployment_id"],
+                        row["tenant_id"], row["deployment_id"],
+                    ),
                 )
             cursor.execute(
                 """
@@ -1141,10 +1190,10 @@ class ManagementStore:
             policy = cursor.fetchone()
             if policy is None:
                 raise ManagementDenied("quota policy is unavailable")
-            now = datetime.now(timezone.utc)
+            now = datetime.now(UTC)
             seconds = int(policy["window_seconds"])
             window = datetime.fromtimestamp(
-                int(now.timestamp()) // seconds * seconds, timezone.utc
+                int(now.timestamp()) // seconds * seconds, UTC
             )
             cursor.execute(
                 """
@@ -1276,7 +1325,7 @@ class ManagementStore:
                     )
                 return dict(row)
             if row["status"] != "reserved" or row["expires_at"] <= datetime.now(
-                timezone.utc
+                UTC
             ):
                 raise ManagementConflict("quota reservation is no longer active")
             if actual_amount > int(row["reserved_amount"]):
@@ -1354,8 +1403,8 @@ class ManagementStore:
         enrollment_id: str,
         token_digest: str,
     ) -> dict[str, Any]:
-        expires_at = request.expires_at.astimezone(timezone.utc)
-        now = datetime.now(timezone.utc)
+        expires_at = request.expires_at.astimezone(UTC)
+        now = datetime.now(UTC)
         if expires_at <= now or expires_at > now + timedelta(minutes=15):
             raise ManagementError("BYOC enrollment must expire within 15 minutes")
         with self._transaction() as cursor:
@@ -1484,7 +1533,7 @@ class ManagementStore:
                 (enrollment_id,),
             )
             row = cursor.fetchone()
-            now = datetime.now(timezone.utc)
+            now = datetime.now(UTC)
             if (
                 row is None
                 or row["status"] != "pending"
@@ -1636,8 +1685,8 @@ class ManagementStore:
                 }
             if event.sequence != int(connector["last_health_sequence"]) + 1:
                 raise ManagementConflict("BYOC health sequence is not contiguous")
-            occurred_at = event.occurred_at.astimezone(timezone.utc)
-            now = datetime.now(timezone.utc)
+            occurred_at = event.occurred_at.astimezone(UTC)
+            now = datetime.now(UTC)
             if occurred_at > now + timedelta(
                 minutes=1
             ) or occurred_at < now - timedelta(days=7):

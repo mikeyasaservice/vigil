@@ -63,7 +63,7 @@ identifiers and are intentionally not committed.
 | T04 | Durable resume idempotency and pinned program | Partial; forged broker/DLQ/cache collision matrix remains. |
 | T05 | Foreign token and tenant header denied | Partial; full issuer/audience/session/membership expiry matrix remains. |
 | T06 | Worker bypass denied and bound two-person approval | Partial; all grant substitutions against a deployed mutation sink remain. |
-| T07 | Architecture only | Not run: enterprise JIT, break-glass and customer-visible support audit are not implemented. |
+| T07 | Database-backed OIDC/SAML, SCIM, exact-scope JIT, break-glass, expiry/revocation and customer-visible audit passed local managed qualification after this AWS run. | Partial; external IdP interoperability and the mTLS support-gateway path have not been redeployed or qualified in these AWS environments. |
 | T08 | Local signed-command unit coverage | Not run against a deployed outbound connector. |
 | T09 | Durable bounded local outbox implementation | Not run as a long management partition with the deployed tenant runtime. |
 | T10 | Cancellation/revocation across a gateway restart | Partial; active connector/session/credential rotation matrix remains. |
@@ -101,8 +101,8 @@ python3 infra/production-qualification/aws/load-qualify.py
 
 ## Remaining business readiness
 
-Do not accept live customer data from this report alone. Enterprise SSO/SCIM,
-operator JIT and break-glass, support-session audit, billing/entitlements,
+Do not accept live customer data from this report alone. External enterprise IdP
+interoperability and deployed support-gateway qualification, billing/entitlements,
 customer lifecycle automation, a continuous connector deployment with a real
 management endpoint, multi-region recovery, full observability isolation, a live-provider
 DSPy optimization and promotion drill in deployed AWS, and customer-owned AWS qualification

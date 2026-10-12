@@ -14,8 +14,21 @@ from services.management.serve import configuration
 
 def configure_base(monkeypatch: pytest.MonkeyPatch) -> Ed25519PrivateKey:
     command_key = Ed25519PrivateKey.generate().private_bytes_raw()
+    federated_key = Ed25519PrivateKey.generate()
     values = {
         "MANAGEMENT_DATABASE_URL": "postgresql://unused",
+        "AUTOBOT_ENTERPRISE_IDENTITY_MODE": "database",
+        "AUTOBOT_FEDERATED_SESSION_ISSUER": "https://sessions.autobot.example",
+        "AUTOBOT_FEDERATED_SESSION_AUDIENCE": "autobot-management",
+        "AUTOBOT_FEDERATED_SESSION_PRIVATE_KEY": federated_key.private_bytes(
+            serialization.Encoding.PEM,
+            serialization.PrivateFormat.PKCS8,
+            serialization.NoEncryption(),
+        ).decode(),
+        "AUTOBOT_FEDERATED_SESSION_PUBLIC_KEY": federated_key.public_key().public_bytes(
+            serialization.Encoding.PEM,
+            serialization.PublicFormat.SubjectPublicKeyInfo,
+        ).decode(),
         "VIGIL_MANAGEMENT_AUTH_ISSUER": "https://operators.example",
         "VIGIL_MANAGEMENT_AUTH_AUDIENCE": "vigil-management",
         "VIGIL_MANAGEMENT_AUTH_PUBLIC_KEY": "mounted-operator-public-key",

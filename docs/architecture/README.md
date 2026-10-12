@@ -55,6 +55,8 @@ customer demand has not yet been supplied.
     [current Phase 5 validation evidence](phase5-validation.md).
 11. [Real AWS production qualification](aws-production-qualification-2026-10-12.md).
 12. [DSPy optimization lifecycle implementation and validation](dspy-optimization-lifecycle-validation-2026-10-12.md).
+13. [Enterprise identity and T07 validation](enterprise-identity-t07-validation-2026-10-12.md)
+    and [operator-control design](../security/enterprise-identity-operator-controls.md).
 
 ## Validation meaning
 
