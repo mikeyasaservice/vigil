@@ -1,7 +1,7 @@
 # AWS production qualification — 2026-10-12
 
-Status: **two real dedicated development environments qualified narrowly; full
-production and customer-owned BYOC gates remain open**.
+Status: **two real dedicated development environments qualified narrowly and
+offboarded; full production and customer-owned BYOC gates remain open**.
 
 This run used synthetic tenant data in the authorized AWS development account.
 It did not use customer telemetry. Tenant A and B had separate VPCs, EKS
@@ -10,7 +10,11 @@ records, S3 buckets, queues, credentials and dedicated agent/reasoner/connector
 pods. A same-account BYOC resource fixture was also exercised and is labeled as
 development qualification rather than customer-owned evidence.
 
-## Deployed versions and shape
+## Qualified deployment versions and shape
+
+These values describe the deployment exercised by the isolation matrix. Both
+tenant stacks and the temporary qualification authority were destroyed after
+the evidence was collected.
 
 | Component | Qualified value |
 |---|---|
@@ -44,8 +48,8 @@ identifiers and are intentionally not committed.
 | Load `20261012T024345Z` | Passed | During 48 concurrent A admissions, all 50 B reads succeeded with 0.637-second p95 against a declared 2-second threshold, and B completed an investigation in 2.49 seconds against a 180-second threshold. |
 | BYOC AWS `20261012T024229Z` | Passed narrowly | In the same development account, KMS rotation, S3 KMS encryption/versioning, SQS KMS binding, an empty secret reference and an exact versioned object worked. This is not customer-owned-account evidence. |
 | BYOC offboarding `byoc-offboard.json` | Passed narrowly | Direct AWS queries confirmed both S3 buckets and the SQS queue were gone, and the integration secret and KMS key were gone or in AWS scheduled-deletion state. This remains same-account development evidence. |
-| Historical dedicated offboarding `offboard-a.json`, `offboard-b.json` | Passed | Pulumi deleted 92 resources per tenant in the earlier drill. Direct queries confirmed EKS, Aurora, manual Aurora snapshots, Valkey, VPC, S3, runtime secret, KMS key, six ECR repositories and the workload IAM role were deleted or in the documented AWS scheduled-deletion state. The current isolation environments are a later deployment and remain active. |
-| Historical qualification authority offboarding `offboard-bootstrap.json` | Passed | Pulumi deleted the earlier 10-resource bootstrap stack; direct IAM queries confirmed both temporary tenant deployer roles no longer existed after that drill. |
+| Dedicated offboarding `offboard-a.json`, `offboard-b.json` | Passed after the isolation matrix | Pulumi deleted 92 resources per tenant. Direct AWS queries confirmed EKS, Aurora, manual Aurora snapshots, Valkey, VPC, S3, runtime secret, KMS key, six ECR repositories and the workload IAM role were deleted or in the documented AWS scheduled-deletion state. |
+| Qualification authority offboarding `offboard-bootstrap.json` | Passed after tenant deletion | Pulumi deleted the 10-resource bootstrap stack; direct IAM queries confirmed both temporary tenant deployer roles no longer exist. |
 | Management PostgreSQL | 31 passed | Enrollment replay/key possession, signed contiguous health, cross-process revocation, membership routing, concurrent quota limits and operation fencing used durable PostgreSQL. |
 | Python managed/security selection | 55 passed, 8 skipped before PostgreSQL; skipped cases then passed in the 31-test durable suite | Managed authorization, envelope, lifecycle, reasoner and storage regressions passed. |
 | TypeScript agent | Typecheck/build, 19 focused managed/data readiness tests and 31 domain tests passed | Worker waits for security/reasoner proxies before consuming the queue; Redis TLS/cluster-prefix and managed-envelope regressions passed. A broader run produced 1,103 passes and 65 failures because the sandbox denied local `127.0.0.1` listeners; those failures are not counted as product passes or failures. |
