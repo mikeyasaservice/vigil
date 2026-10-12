@@ -1,0 +1,467 @@
+{
+  "info": {
+    "name": "Autobot DSPy lifecycle (local)",
+    "description": "Generated from contracts/dspy-lifecycle.openapi.yaml. Keep tenant credentials and datasets local.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:6987"
+    },
+    {
+      "key": "accessToken",
+      "value": ""
+    },
+    {
+      "key": "promotionId",
+      "value": "00000000-0000-4000-8000-000000000040"
+    },
+    {
+      "key": "rollbackId",
+      "value": "00000000-0000-4000-8000-000000000050"
+    }
+  ],
+  "item": [
+    {
+      "name": "registerDSPyDataset",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{accessToken}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/v2/dspy/datasets",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v2",
+            "dspy",
+            "datasets"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"dataset_id\": \"00000000-0000-4000-8000-000000000010\",\n  \"name\": \"synthetic-triage\",\n  \"version\": 1,\n  \"object_ref\": \"local:datasets/synthetic-triage-v1.json\",\n  \"content_digest\": \"sha256:1111111111111111111111111111111111111111111111111111111111111111\",\n  \"schema_digest\": \"sha256:2222222222222222222222222222222222222222222222222222222222222222\",\n  \"split_manifest\": {\n    \"train\": 10,\n    \"development\": 5,\n    \"holdout\": 5,\n    \"safety\": 5\n  },\n  \"use_purpose\": \"Synthetic triage program qualification\",\n  \"sensitivity\": \"synthetic\",\n  \"retention_policy_ref\": \"local:retention/default\",\n  \"access_policy_ref\": \"local:access/reasoner-only\"\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('authenticated lifecycle boundary responds', () => pm.expect(pm.response.code).to.be.below(500));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "createDSPyEvaluation",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{accessToken}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/v2/dspy/evaluations",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v2",
+            "dspy",
+            "evaluations"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"dataset_id\": \"00000000-0000-4000-8000-000000000010\",\n  \"program_id\": \"triage-dspy-v1\",\n  \"program_digest\": \"sha256:3333333333333333333333333333333333333333333333333333333333333333\",\n  \"model_config_digest\": \"sha256:4444444444444444444444444444444444444444444444444444444444444444\",\n  \"evaluator_digest\": \"sha256:5555555555555555555555555555555555555555555555555555555555555555\",\n  \"split_name\": \"holdout\",\n  \"seed\": 9,\n  \"thresholds\": {\n    \"minimum_pass_rate\": 0.9,\n    \"minimum_grounding_rate\": 1,\n    \"minimum_action_safety_rate\": 1,\n    \"maximum_failure_rate\": 0.1\n  },\n  \"execution_location\": \"tenant-local\",\n  \"max_tokens\": 100000,\n  \"max_cost_microusd\": 1000000\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('authenticated lifecycle boundary responds', () => pm.expect(pm.response.code).to.be.below(500));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "createDSPyOptimization",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{accessToken}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/v2/dspy/optimizations",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v2",
+            "dspy",
+            "optimizations"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"dataset_id\": \"00000000-0000-4000-8000-000000000010\",\n  \"base_program_id\": \"triage-dspy-v1\",\n  \"base_program_digest\": \"sha256:3333333333333333333333333333333333333333333333333333333333333333\",\n  \"optimizer_name\": \"miprov2\",\n  \"optimizer_config\": {\n    \"auto\": \"light\",\n    \"num_threads\": 1\n  },\n  \"model_config_digest\": \"sha256:4444444444444444444444444444444444444444444444444444444444444444\",\n  \"dependency_digest\": \"sha256:6666666666666666666666666666666666666666666666666666666666666666\",\n  \"seed\": 9,\n  \"max_tokens\": 100000,\n  \"max_cost_microusd\": 1000000,\n  \"lineage_classification\": \"synthetic\"\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('authenticated lifecycle boundary responds', () => pm.expect(pm.response.code).to.be.below(500));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "requestDSPyPromotion",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{accessToken}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/v2/dspy/promotions",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v2",
+            "dspy",
+            "promotions"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"optimization_id\": \"00000000-0000-4000-8000-000000000020\",\n  \"holdout_evaluation_id\": \"00000000-0000-4000-8000-000000000030\",\n  \"target_stage\": \"staged\"\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('authenticated lifecycle boundary responds', () => pm.expect(pm.response.code).to.be.below(500));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "approveDSPyPromotion",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{accessToken}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/v2/dspy/promotions/{{promotionId}}/approve",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v2",
+            "dspy",
+            "promotions",
+            "{{promotionId}}",
+            "approve"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"request_digest\": \"sha256:7777777777777777777777777777777777777777777777777777777777777777\"\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('authenticated lifecycle boundary responds', () => pm.expect(pm.response.code).to.be.below(500));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "activateDSPyPromotion",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{accessToken}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/v2/dspy/promotions/{{promotionId}}/activate",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v2",
+            "dspy",
+            "promotions",
+            "{{promotionId}}",
+            "activate"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('authenticated lifecycle boundary responds', () => pm.expect(pm.response.code).to.be.below(500));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "stageDSPyPromotion",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{accessToken}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/v2/dspy/promotions/{{promotionId}}/stage",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v2",
+            "dspy",
+            "promotions",
+            "{{promotionId}}",
+            "stage"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('authenticated lifecycle boundary responds', () => pm.expect(pm.response.code).to.be.below(500));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "requestDSPyRollback",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{accessToken}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/v2/dspy/rollbacks",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v2",
+            "dspy",
+            "rollbacks"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"program_id\": \"triage-dspy-v1\",\n  \"target_program_digest\": \"sha256:8888888888888888888888888888888888888888888888888888888888888888\"\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('authenticated lifecycle boundary responds', () => pm.expect(pm.response.code).to.be.below(500));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "approveDSPyRollback",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{accessToken}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/v2/dspy/rollbacks/{{rollbackId}}/approve",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v2",
+            "dspy",
+            "rollbacks",
+            "{{rollbackId}}",
+            "approve"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"request_digest\": \"sha256:9999999999999999999999999999999999999999999999999999999999999999\"\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('authenticated lifecycle boundary responds', () => pm.expect(pm.response.code).to.be.below(500));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "applyDSPyRollback",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{accessToken}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/v2/dspy/rollbacks/{{rollbackId}}/apply",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v2",
+            "dspy",
+            "rollbacks",
+            "{{rollbackId}}",
+            "apply"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('authenticated lifecycle boundary responds', () => pm.expect(pm.response.code).to.be.below(500));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "listDSPyLifecycleHistory",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{accessToken}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/v2/dspy/history",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v2",
+            "dspy",
+            "history"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('authenticated lifecycle boundary responds', () => pm.expect(pm.response.code).to.be.below(500));"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

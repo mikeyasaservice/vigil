@@ -1,0 +1,153 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.autobot.security/managed/dspy-lifecycle-v1.json",
+  "title": "Tenant-local DSPy optimization lifecycle",
+  "type": "object",
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "localRef": {
+      "type": "string",
+      "pattern": "^local:[A-Za-z0-9][A-Za-z0-9._/-]{0,254}$"
+    },
+    "datasetExample": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["example_id", "input", "expected"],
+      "properties": {
+        "example_id": {"type": "string", "minLength": 1, "maxLength": 200},
+        "input": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["finding_ids", "evidence", "budget_tokens"],
+          "properties": {
+            "finding_ids": {"type": "array", "minItems": 1, "maxItems": 100, "items": {"type": "string"}},
+            "evidence": {"type": "array", "maxItems": 500, "items": {"type": "object"}},
+            "budget_tokens": {"type": "integer", "minimum": 1}
+          }
+        },
+        "expected": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["evidence_refs", "allowed_actions"],
+          "properties": {
+            "evidence_refs": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
+            "allowed_actions": {"type": "array", "uniqueItems": true, "items": {"type": "string", "pattern": "^propose:"}},
+            "min_confidence": {"type": "number", "minimum": 0, "maximum": 1}
+          }
+        }
+      }
+    },
+    "dataset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "dataset_id", "tenant_id", "deployment_id", "use_purpose", "splits"],
+      "properties": {
+        "schema_version": {"const": "autobot.dspy.dataset/v1"},
+        "dataset_id": {"type": "string", "format": "uuid"},
+        "tenant_id": {"type": "string", "minLength": 1},
+        "deployment_id": {"type": "string", "minLength": 1},
+        "use_purpose": {"type": "string", "minLength": 1, "maxLength": 500},
+        "splits": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["train", "development", "holdout", "safety"],
+          "properties": {
+            "train": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/datasetExample"}},
+            "development": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/datasetExample"}},
+            "holdout": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/datasetExample"}},
+            "safety": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/datasetExample"}}
+          }
+        }
+      }
+    },
+    "thresholds": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["minimum_pass_rate", "minimum_grounding_rate", "minimum_action_safety_rate", "maximum_failure_rate"],
+      "properties": {
+        "minimum_pass_rate": {"type": "number", "minimum": 0, "maximum": 1},
+        "minimum_grounding_rate": {"type": "number", "minimum": 0, "maximum": 1},
+        "minimum_action_safety_rate": {"type": "number", "minimum": 0, "maximum": 1},
+        "maximum_failure_rate": {"type": "number", "minimum": 0, "maximum": 1}
+      }
+    },
+    "aggregateReceipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "tenant_id", "deployment_id", "evaluation_id", "dataset_digest", "program_digest", "model_config_digest", "metric_contract_digest", "split_name", "metrics", "passed", "completed_at", "signature"],
+      "properties": {
+        "schema_version": {"const": "autobot.dspy.evaluation-receipt/v1"},
+        "tenant_id": {"type": "string"},
+        "deployment_id": {"type": "string"},
+        "evaluation_id": {"type": "string", "format": "uuid"},
+        "dataset_digest": {"$ref": "#/$defs/sha256"},
+        "program_digest": {"$ref": "#/$defs/sha256"},
+        "model_config_digest": {"$ref": "#/$defs/sha256"},
+        "metric_contract_digest": {"$ref": "#/$defs/sha256"},
+        "split_name": {"enum": ["development", "holdout", "safety"]},
+        "metrics": {"type": "object", "additionalProperties": {"type": ["integer", "number"]}},
+        "passed": {"type": "boolean"},
+        "completed_at": {"type": "string", "format": "date-time"},
+        "signature": {"type": "string", "minLength": 32}
+      }
+    },
+    "candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "tenant_id", "deployment_id", "program_id", "base_program_digest", "dataset_digest", "optimizer_name", "optimizer_config_digest", "model_config_digest", "dependency_digest", "state"],
+      "properties": {
+        "schema_version": {"const": "autobot.dspy.candidate/v1"},
+        "tenant_id": {"type": "string", "minLength": 1},
+        "deployment_id": {"type": "string", "minLength": 1},
+        "program_id": {"type": "string", "minLength": 1},
+        "base_program_digest": {"$ref": "#/$defs/sha256"},
+        "dataset_digest": {"$ref": "#/$defs/sha256"},
+        "optimizer_name": {"enum": ["bootstrap-few-shot", "miprov2"]},
+        "optimizer_config_digest": {"$ref": "#/$defs/sha256"},
+        "model_config_digest": {"$ref": "#/$defs/sha256"},
+        "dependency_digest": {"$ref": "#/$defs/sha256"},
+        "state": {"type": "object"}
+      }
+    },
+    "optimizationReceipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "tenant_id", "deployment_id", "program_id", "candidate_digest", "candidate_signature", "dataset_digest", "optimizer_config_digest", "model_config_digest", "dependency_digest", "used_tokens", "used_cost_microusd"],
+      "properties": {
+        "schema_version": {"const": "autobot.dspy.optimization-receipt/v1"},
+        "tenant_id": {"type": "string", "minLength": 1},
+        "deployment_id": {"type": "string", "minLength": 1},
+        "program_id": {"type": "string", "minLength": 1},
+        "candidate_digest": {"$ref": "#/$defs/sha256"},
+        "candidate_signature": {"type": "string", "minLength": 32},
+        "dataset_digest": {"$ref": "#/$defs/sha256"},
+        "optimizer_config_digest": {"$ref": "#/$defs/sha256"},
+        "model_config_digest": {"$ref": "#/$defs/sha256"},
+        "dependency_digest": {"$ref": "#/$defs/sha256"},
+        "used_tokens": {"type": "integer", "minimum": 0},
+        "used_cost_microusd": {"type": "integer", "minimum": 0}
+      }
+    },
+    "localEvaluation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "evaluation_id", "tenant_id", "deployment_id", "program_digest", "split_name", "metrics", "failures", "passed", "used_tokens", "used_cost_microusd"],
+      "properties": {
+        "schema_version": {"const": "autobot.dspy.local-evaluation/v1"},
+        "evaluation_id": {"type": "string", "format": "uuid"},
+        "tenant_id": {"type": "string", "minLength": 1},
+        "deployment_id": {"type": "string", "minLength": 1},
+        "program_digest": {"$ref": "#/$defs/sha256"},
+        "split_name": {"enum": ["development", "holdout", "safety"]},
+        "metrics": {"type": "object", "additionalProperties": {"type": ["integer", "number"]}},
+        "failures": {"type": "array", "items": {"type": "object"}},
+        "passed": {"type": "boolean"},
+        "used_tokens": {"type": "integer", "minimum": 0},
+        "used_cost_microusd": {"type": "integer", "minimum": 0}
+      }
+    }
+  }
+}

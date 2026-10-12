@@ -61,12 +61,29 @@ type Command struct {
 }
 
 type HealthPayload struct {
-	Status                  string  `json:"status"`
-	ObservedGeneration      uint64  `json:"observed_generation"`
-	ReleaseDigest           *string `json:"release_digest"`
-	BacklogCount            uint64  `json:"backlog_count"`
-	DroppedCount            uint64  `json:"dropped_count"`
-	StorageWatermarkPercent uint64  `json:"storage_watermark_percent"`
+	Status                  string                 `json:"status"`
+	ObservedGeneration      uint64                 `json:"observed_generation"`
+	ReleaseDigest           *string                `json:"release_digest"`
+	BacklogCount            uint64                 `json:"backlog_count"`
+	DroppedCount            uint64                 `json:"dropped_count"`
+	StorageWatermarkPercent uint64                 `json:"storage_watermark_percent"`
+	DSPyEvaluation          *DSPyEvaluationReceipt `json:"dspy_evaluation,omitempty"`
+}
+
+type DSPyEvaluationReceipt struct {
+	SchemaVersion        string             `json:"schema_version"`
+	TenantID             string             `json:"tenant_id"`
+	DeploymentID         string             `json:"deployment_id"`
+	EvaluationID         string             `json:"evaluation_id"`
+	DatasetDigest        string             `json:"dataset_digest"`
+	ProgramDigest        string             `json:"program_digest"`
+	ModelConfigDigest    string             `json:"model_config_digest"`
+	MetricContractDigest string             `json:"metric_contract_digest"`
+	SplitName            string             `json:"split_name"`
+	Metrics              map[string]float64 `json:"metrics"`
+	Passed               bool               `json:"passed"`
+	CompletedAt          string             `json:"completed_at"`
+	Signature            string             `json:"signature"`
 }
 
 type EnrollmentProof struct {
@@ -295,14 +312,30 @@ func (a *Authority) EmergencyRevoke() error {
 }
 
 func (a *Authority) QueueHealth(kind string, payload HealthPayload, now time.Time) error {
-	allowed := map[string]bool{"heartbeat": true, "release": true, "capacity": true, "gap": true, "revocation": true}
+	allowed := map[string]bool{"heartbeat": true, "release": true, "capacity": true, "gap": true, "revocation": true, "dspy_evaluation": true}
 	if !allowed[kind] || payload.StorageWatermarkPercent > 100 {
 		return errors.New("health event is outside the allowlist")
+	}
+	if kind == "dspy_evaluation" {
+		receipt := payload.DSPyEvaluation
+		validSplit := receipt != nil && (receipt.SplitName == "development" || receipt.SplitName == "holdout" || receipt.SplitName == "safety")
+		if !validSplit || receipt.SchemaVersion != "autobot.dspy.evaluation-receipt/v1" ||
+			receipt.TenantID != a.state.Binding.TenantID || receipt.DeploymentID != a.state.Binding.DeploymentID ||
+			len(receipt.EvaluationID) != 36 || len(receipt.DatasetDigest) != 71 || len(receipt.ProgramDigest) != 71 ||
+			len(receipt.ModelConfigDigest) != 71 || len(receipt.MetricContractDigest) != 71 || len(receipt.Signature) < 32 {
+			return errors.New("DSPy evaluation receipt is outside the customer binding")
+		}
+		if _, err := time.Parse(time.RFC3339Nano, receipt.CompletedAt); err != nil || len(receipt.Metrics) == 0 {
+			return errors.New("DSPy evaluation receipt is incomplete")
+		}
+	} else if payload.DSPyEvaluation != nil {
+		return errors.New("DSPy evaluation data is not allowed on this health event")
 	}
 	if len(a.state.Outbox) >= MaxOutbox {
 		a.state.DroppedHealth++
 		payload.Status = "degraded"
 		payload.DroppedCount = a.state.DroppedHealth
+		payload.DSPyEvaluation = nil
 		last := len(a.state.Outbox) - 1
 		event := HealthEvent{
 			Incarnation: a.state.Binding.Incarnation, Sequence: a.state.Outbox[last].Sequence,

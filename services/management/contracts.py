@@ -345,12 +345,34 @@ class BYOCHealthPayload(ClosedModel):
     backlog_count: int = Field(default=0, ge=0)
     dropped_count: int = Field(default=0, ge=0)
     storage_watermark_percent: int = Field(default=0, ge=0, le=100)
+    dspy_evaluation: "BYOCDSPyEvaluationReceipt | None" = None
+
+
+class BYOCDSPyEvaluationReceipt(ClosedModel):
+    schema_version: Literal["autobot.dspy.evaluation-receipt/v1"]
+    tenant_id: str
+    deployment_id: str
+    evaluation_id: uuid.UUID
+    dataset_digest: str = Field(pattern=r"^sha256:[a-f0-9]{64}$")
+    program_digest: str = Field(pattern=r"^sha256:[a-f0-9]{64}$")
+    model_config_digest: str = Field(pattern=r"^sha256:[a-f0-9]{64}$")
+    metric_contract_digest: str = Field(pattern=r"^sha256:[a-f0-9]{64}$")
+    split_name: Literal["development", "holdout", "safety"]
+    metrics: dict[str, float]
+    passed: bool
+    completed_at: datetime
+    signature: str = Field(min_length=32, max_length=256)
+
+
+BYOCHealthPayload.model_rebuild()
 
 
 class BYOCHealthEvent(ClosedModel):
     incarnation: uuid.UUID
     sequence: int = Field(gt=0)
-    event_kind: Literal["heartbeat", "release", "capacity", "gap", "revocation"]
+    event_kind: Literal[
+        "heartbeat", "release", "capacity", "gap", "revocation", "dspy_evaluation"
+    ]
     occurred_at: datetime
     revocation_epoch: int = Field(gt=0)
     payload: BYOCHealthPayload
@@ -360,6 +382,10 @@ class BYOCHealthEvent(ClosedModel):
     def timezone_required(self):
         if self.occurred_at.tzinfo is None:
             raise ValueError("health occurrence time must include a timezone")
+        if (self.event_kind == "dspy_evaluation") != (
+            self.payload.dspy_evaluation is not None
+        ):
+            raise ValueError("DSPy evaluation payload is bound only to its event kind")
         return self
 
 

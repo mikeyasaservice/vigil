@@ -1,0 +1,237 @@
+openapi: 3.1.0
+info:
+  title: Autobot tenant-local DSPy lifecycle
+  version: 1.0.0
+  description: Dataset registration, evaluation, optimization, two-person promotion and deployment activation inside one authenticated tenant data plane.
+servers:
+  - url: http://localhost:6987
+paths:
+  /api/v2/dspy/datasets:
+    post:
+      operationId: registerDSPyDataset
+      security: [{bearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/DatasetRegistration'}
+      responses:
+        '201': {description: Immutable tenant-local dataset metadata registered}
+        '403': {description: Tenant role denied}
+        '409': {description: Dataset version conflicts with different content}
+  /api/v2/dspy/evaluations:
+    post:
+      operationId: createDSPyEvaluation
+      security: [{bearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/EvaluationRequest'}
+      responses:
+        '202': {description: Tenant-local evaluation queued with fixed thresholds and budget}
+        '409': {description: Dataset or artifact binding denied}
+  /api/v2/dspy/optimizations:
+    post:
+      operationId: createDSPyOptimization
+      security: [{bearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/OptimizationRequest'}
+      responses:
+        '202': {description: Budgeted tenant-local optimizer run queued}
+        '409': {description: Source dataset or base program denied}
+  /api/v2/dspy/promotions:
+    post:
+      operationId: requestDSPyPromotion
+      security: [{bearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/PromotionRequest'}
+      responses:
+        '202': {description: Promotion requested after passing holdout and safety evaluations}
+        '409': {description: Candidate evidence is incomplete}
+  /api/v2/dspy/promotions/{promotion_id}/approve:
+    post:
+      operationId: approveDSPyPromotion
+      security: [{bearerAuth: []}]
+      parameters:
+        - {$ref: '#/components/parameters/PromotionId'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/PromotionApproval'}
+      responses:
+        '200': {description: Distinct authorized approver signed the exact request digest}
+        '409': {description: 'Approval is altered, stale, foreign or self-approved'}
+  /api/v2/dspy/promotions/{promotion_id}/activate:
+    post:
+      operationId: activateDSPyPromotion
+      security: [{bearerAuth: []}]
+      parameters:
+        - {$ref: '#/components/parameters/PromotionId'}
+      responses:
+        '200': {description: Exact candidate activated for the authenticated deployment}
+        '409': {description: Promotion is unavailable or artifact is revoked}
+  /api/v2/dspy/promotions/{promotion_id}/stage:
+    post:
+      operationId: stageDSPyPromotion
+      security: [{bearerAuth: []}]
+      parameters:
+        - {$ref: '#/components/parameters/PromotionId'}
+      responses:
+        '200': {description: Exact candidate registered as approved without changing a deployment binding}
+        '409': {description: Staging promotion is unavailable or artifact is revoked}
+  /api/v2/dspy/rollbacks:
+    post:
+      operationId: requestDSPyRollback
+      security: [{bearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/RollbackRequest'}
+      responses:
+        '202': {description: Rollback of the exact previous deployment digest requested}
+        '409': {description: 'Target is not previous, approved and unrevoked'}
+  /api/v2/dspy/rollbacks/{rollback_id}/approve:
+    post:
+      operationId: approveDSPyRollback
+      security: [{bearerAuth: []}]
+      parameters:
+        - {$ref: '#/components/parameters/RollbackId'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/PromotionApproval'}
+      responses:
+        '200': {description: Distinct approver signed the exact rollback request}
+        '409': {description: 'Approval is altered, stale, foreign or self-approved'}
+  /api/v2/dspy/rollbacks/{rollback_id}/apply:
+    post:
+      operationId: applyDSPyRollback
+      security: [{bearerAuth: []}]
+      parameters:
+        - {$ref: '#/components/parameters/RollbackId'}
+      responses:
+        '200': {description: Deployment generation advanced to the previous approved digest}
+        '409': {description: Rollback is stale or target is revoked}
+  /api/v2/dspy/history:
+    get:
+      operationId: listDSPyLifecycleHistory
+      security: [{bearerAuth: []}]
+      responses:
+        '200': {description: 'Tenant-scoped evaluation, optimization and promotion history'}
+components:
+  securitySchemes:
+    bearerAuth: {type: http, scheme: bearer}
+  parameters:
+    PromotionId:
+      name: promotion_id
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+    RollbackId:
+      name: rollback_id
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+  schemas:
+    Sha256:
+      type: string
+      pattern: '^sha256:[a-f0-9]{64}$'
+    LocalRef:
+      type: string
+      pattern: '^local:[A-Za-z0-9][A-Za-z0-9._/-]{0,254}$'
+    DatasetRegistration:
+      type: object
+      additionalProperties: false
+      required: [dataset_id, name, version, object_ref, content_digest, schema_digest, split_manifest, use_purpose, sensitivity, retention_policy_ref, access_policy_ref]
+      properties:
+        dataset_id: {type: string, format: uuid}
+        name: {type: string, minLength: 1, maxLength: 200}
+        version: {type: integer, minimum: 1}
+        object_ref: {$ref: '#/components/schemas/LocalRef'}
+        content_digest: {$ref: '#/components/schemas/Sha256'}
+        schema_digest: {$ref: '#/components/schemas/Sha256'}
+        split_manifest:
+          type: object
+          additionalProperties: false
+          required: [train, development, holdout, safety]
+          properties:
+            train: {type: integer, minimum: 1}
+            development: {type: integer, minimum: 1}
+            holdout: {type: integer, minimum: 1}
+            safety: {type: integer, minimum: 1}
+        use_purpose: {type: string, minLength: 1, maxLength: 500}
+        sensitivity: {enum: [synthetic, internal, confidential, restricted]}
+        retention_policy_ref: {$ref: '#/components/schemas/LocalRef'}
+        access_policy_ref: {$ref: '#/components/schemas/LocalRef'}
+    Thresholds:
+      type: object
+      additionalProperties: false
+      required: [minimum_pass_rate, minimum_grounding_rate, minimum_action_safety_rate, maximum_failure_rate]
+      properties:
+        minimum_pass_rate: {type: number, minimum: 0, maximum: 1}
+        minimum_grounding_rate: {type: number, minimum: 0, maximum: 1}
+        minimum_action_safety_rate: {type: number, minimum: 0, maximum: 1}
+        maximum_failure_rate: {type: number, minimum: 0, maximum: 1}
+    EvaluationRequest:
+      type: object
+      additionalProperties: false
+      required: [dataset_id, program_id, program_digest, model_config_digest, evaluator_digest, split_name, thresholds, execution_location, max_tokens, max_cost_microusd]
+      properties:
+        dataset_id: {type: string, format: uuid}
+        program_id: {type: string, minLength: 1, maxLength: 128}
+        program_digest: {$ref: '#/components/schemas/Sha256'}
+        model_config_digest: {$ref: '#/components/schemas/Sha256'}
+        evaluator_digest: {$ref: '#/components/schemas/Sha256'}
+        split_name: {enum: [development, holdout, safety]}
+        seed: {type: integer, default: 9}
+        thresholds: {$ref: '#/components/schemas/Thresholds'}
+        execution_location: {enum: [tenant-local, byoc-local]}
+        max_tokens: {type: integer, minimum: 1}
+        max_cost_microusd: {type: integer, minimum: 1}
+    OptimizationRequest:
+      type: object
+      additionalProperties: false
+      required: [dataset_id, base_program_id, base_program_digest, optimizer_name, optimizer_config, model_config_digest, dependency_digest, max_tokens, max_cost_microusd, lineage_classification]
+      properties:
+        dataset_id: {type: string, format: uuid}
+        base_program_id: {type: string, minLength: 1, maxLength: 128}
+        base_program_digest: {$ref: '#/components/schemas/Sha256'}
+        optimizer_name: {enum: [bootstrap-few-shot, miprov2]}
+        optimizer_config: {type: object}
+        model_config_digest: {$ref: '#/components/schemas/Sha256'}
+        dependency_digest: {$ref: '#/components/schemas/Sha256'}
+        seed: {type: integer, default: 9}
+        max_tokens: {type: integer, minimum: 1}
+        max_cost_microusd: {type: integer, minimum: 1}
+        lineage_classification: {enum: [synthetic, tenant-derived, redistributable]}
+    PromotionRequest:
+      type: object
+      additionalProperties: false
+      required: [optimization_id, holdout_evaluation_id, target_stage]
+      properties:
+        optimization_id: {type: string, format: uuid}
+        holdout_evaluation_id: {type: string, format: uuid}
+        target_stage: {enum: [staged, active]}
+    PromotionApproval:
+      type: object
+      additionalProperties: false
+      required: [request_digest]
+      properties:
+        request_digest: {$ref: '#/components/schemas/Sha256'}
+    RollbackRequest:
+      type: object
+      additionalProperties: false
+      required: [program_id, target_program_digest]
+      properties:
+        program_id: {type: string, minLength: 1, maxLength: 128}
+        target_program_digest: {$ref: '#/components/schemas/Sha256'}

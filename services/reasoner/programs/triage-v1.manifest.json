@@ -2,7 +2,7 @@
   "program_id": "triage-dspy-v1",
   "version": "1.0.0",
   "status": "approved",
-  "artifact_digest": "sha256:6a281b352c5c7e5dbed6f05336bdabc3c7654f2c7415401eb2a16cf12a6cd7be",
+  "artifact_digest": "sha256:84b74d59f07cd32022eb5f2b6f8f9d6d85bdbdee123d3725abac00d9cb236c93",
   "scope": "tenant-local",
   "model_configuration": {
     "provider": "deployment-approved",

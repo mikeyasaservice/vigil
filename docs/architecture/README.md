@@ -7,8 +7,10 @@ Commit: `0226200c476913b8bd5dff1df9bb221c6b147186`.
 Vigil is presently an instance-scoped SOC, not a verified organization-multi-tenant
 platform. A nullable job tenant label does not provide isolation. Do not accept live
 customer data until the applicable [readiness gates](../security/production-readiness-tests.md)
-pass on the actual deployment. This is a Phase 1 design and baseline, not a claim that
-the control plane, DSPy runtime, secure harness, or BYOC connector has been implemented.
+pass on the actual deployment. This paragraph describes the historical Phase 1 baseline.
+Later checkpoint documents record implemented control-plane, DSPy, secure-harness and
+BYOC components; none of those later implementations turns this source audit into
+production evidence.
 
 ## Decisions
 
@@ -52,6 +54,7 @@ customer demand has not yet been supplied.
 10. [Phase 5 BYOC implementation](phase5-implementation.md) and
     [current Phase 5 validation evidence](phase5-validation.md).
 11. [Real AWS production qualification](aws-production-qualification-2026-10-12.md).
+12. [DSPy optimization lifecycle implementation and validation](dspy-optimization-lifecycle-validation-2026-10-12.md).
 
 ## Validation meaning
 

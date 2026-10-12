@@ -64,7 +64,11 @@ def test_every_listed_migration_is_bundled_without_drift() -> None:
 def test_managed_security_schema_is_in_the_chart_bundle() -> None:
     rendered = "\n".join(
         (HELM_BUNDLE / name).read_text(encoding="utf-8")
-        for name in ("41_managed_execution.sql", "42_managed_workload_identity.sql")
+        for name in (
+            "41_managed_execution.sql",
+            "42_managed_workload_identity.sql",
+            "43_dspy_optimization_lifecycle.sql",
+        )
     )
     for required in (
         "managed_admissions",
@@ -74,6 +78,14 @@ def test_managed_security_schema_is_in_the_chart_bundle() -> None:
         "managed_execution_budgets",
         "managed_program_registry",
         "managed_program_registry_guard_mutation",
+        "managed_dspy_datasets",
+        "managed_dspy_evaluations",
+        "managed_dspy_optimizations",
+        "managed_dspy_promotions",
+        "managed_dspy_deployment_bindings",
+        "managed_dspy_rollbacks",
+        "managed_dspy_dataset_guard_mutation",
+        "managed_dspy_candidate_guard_mutation",
     ):
         assert required in rendered, f"managed Helm migration omitted {required}"
 

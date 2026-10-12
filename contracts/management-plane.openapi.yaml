@@ -11,13 +11,13 @@ paths:
       operationId: getManagementLiveness
       security: []
       responses:
-        '200': {description: Process is live, content: {application/json: {schema: {$ref: '#/components/schemas/Health'}}}}
+        '200': {description: 'Process is live', content: {application/json: {schema: {$ref: '#/components/schemas/Health'}}}}
   /readyz:
     get:
       operationId: getManagementReadiness
       security: []
       responses:
-        '200': {description: Management database is ready, content: {application/json: {schema: {$ref: '#/components/schemas/Health'}}}}
+        '200': {description: 'Management database is ready', content: {application/json: {schema: {$ref: '#/components/schemas/Health'}}}}
         '503': {$ref: '#/components/responses/Error'}
   /v1/deployments/{deployment_id}/operations:
     post:
@@ -46,7 +46,7 @@ paths:
       security: [{operatorBearer: []}]
       parameters: [{$ref: '#/components/parameters/DeploymentId'}]
       responses:
-        '200': {description: Deployment state, content: {application/json: {schema: {type: object}}}}
+        '200': {description: 'Deployment state', content: {application/json: {schema: {type: object}}}}
         '403': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
   /v1/operations/{operation_id}:
@@ -113,7 +113,7 @@ paths:
         required: true
         content: {application/json: {schema: {$ref: '#/components/schemas/OperationReceipt'}}}
       responses:
-        '200': {description: Updated deployment, content: {application/json: {schema: {type: object}}}}
+        '200': {description: 'Updated deployment', content: {application/json: {schema: {type: object}}}}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '409': {$ref: '#/components/responses/Error'}
@@ -147,7 +147,7 @@ paths:
       security: [{customerBearer: []}]
       parameters: [{$ref: '#/components/parameters/TenantId'}]
       responses:
-        '200': {description: Short-lived signed route ticket, content: {application/json: {schema: {$ref: '#/components/schemas/RouteTicket'}}}}
+        '200': {description: 'Short-lived signed route ticket', content: {application/json: {schema: {$ref: '#/components/schemas/RouteTicket'}}}}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '503': {$ref: '#/components/responses/Error'}
@@ -173,7 +173,7 @@ paths:
         required: true
         content: {application/json: {schema: {$ref: '#/components/schemas/QuotaReservationRequest'}}}
       responses:
-        '200': {description: Durable quota reservation, content: {application/json: {schema: {$ref: '#/components/schemas/QuotaReservation'}}}}
+        '200': {description: 'Durable quota reservation', content: {application/json: {schema: {$ref: '#/components/schemas/QuotaReservation'}}}}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '409': {$ref: '#/components/responses/Error'}
@@ -188,7 +188,7 @@ paths:
         required: true
         content: {application/json: {schema: {$ref: '#/components/schemas/QuotaCommitRequest'}}}
       responses:
-        '200': {description: Committed aggregate usage, content: {application/json: {schema: {$ref: '#/components/schemas/QuotaReservation'}}}}
+        '200': {description: 'Committed aggregate usage', content: {application/json: {schema: {$ref: '#/components/schemas/QuotaReservation'}}}}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '409': {$ref: '#/components/responses/Error'}
@@ -200,7 +200,7 @@ paths:
         required: true
         content: {application/json: {schema: {$ref: '#/components/schemas/BYOCEnrollmentRequest'}}}
       responses:
-        '200': {description: One-use retry-stable enrollment material, content: {application/json: {schema: {$ref: '#/components/schemas/BYOCEnrollmentResponse'}}}}
+        '200': {description: 'One-use retry-stable enrollment material', content: {application/json: {schema: {$ref: '#/components/schemas/BYOCEnrollmentResponse'}}}}
         '403': {$ref: '#/components/responses/Error'}
         '409': {$ref: '#/components/responses/Error'}
         '422': {$ref: '#/components/responses/Error'}
@@ -213,7 +213,7 @@ paths:
         required: true
         content: {application/json: {schema: {$ref: '#/components/schemas/BYOCEnrollRequest'}}}
       responses:
-        '200': {description: Durable connector binding and short-lived client certificate, content: {application/json: {schema: {$ref: '#/components/schemas/BYOCEnrollmentComplete'}}}}
+        '200': {description: 'Durable connector binding and short-lived client certificate', content: {application/json: {schema: {$ref: '#/components/schemas/BYOCEnrollmentComplete'}}}}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '409': {$ref: '#/components/responses/Error'}
@@ -226,7 +226,7 @@ paths:
         required: true
         content: {application/json: {schema: {$ref: '#/components/schemas/BYOCCertificateRotationRequest'}}}
       responses:
-        '200': {description: Rotated short-lived client certificate, content: {application/json: {schema: {$ref: '#/components/schemas/BYOCCertificateResponse'}}}}
+        '200': {description: 'Rotated short-lived client certificate', content: {application/json: {schema: {$ref: '#/components/schemas/BYOCCertificateResponse'}}}}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '409': {$ref: '#/components/responses/Error'}
@@ -239,7 +239,7 @@ paths:
         required: true
         content: {application/json: {schema: {$ref: '#/components/schemas/BYOCHealthEvent'}}}
       responses:
-        '200': {description: Idempotent health acknowledgement, content: {application/json: {schema: {$ref: '#/components/schemas/BYOCHealthReceipt'}}}}
+        '200': {description: 'Idempotent health acknowledgement', content: {application/json: {schema: {$ref: '#/components/schemas/BYOCHealthReceipt'}}}}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '409': {$ref: '#/components/responses/Error'}
@@ -251,7 +251,7 @@ paths:
         - $ref: '#/components/parameters/TenantId'
         - $ref: '#/components/parameters/DeploymentId'
       responses:
-        '200': {description: Revoked customer connector binding, content: {application/json: {schema: {$ref: '#/components/schemas/BYOCConnector'}}}}
+        '200': {description: 'Revoked customer connector binding', content: {application/json: {schema: {$ref: '#/components/schemas/BYOCConnector'}}}}
         '403': {$ref: '#/components/responses/Error'}
         '409': {$ref: '#/components/responses/Error'}
 components:
@@ -736,7 +736,7 @@ components:
       properties:
         incarnation: {type: string, format: uuid}
         sequence: {type: integer, minimum: 1}
-        event_kind: {type: string, enum: [heartbeat, release, capacity, gap, revocation]}
+        event_kind: {type: string, enum: [heartbeat, release, capacity, gap, revocation, dspy_evaluation]}
         occurred_at: {type: string, format: date-time}
         revocation_epoch: {type: integer, minimum: 1}
         payload:
@@ -750,7 +750,29 @@ components:
             backlog_count: {type: integer, minimum: 0, default: 0}
             dropped_count: {type: integer, minimum: 0, default: 0}
             storage_watermark_percent: {type: integer, minimum: 0, maximum: 100, default: 0}
+            dspy_evaluation:
+              anyOf:
+                - {$ref: '#/components/schemas/BYOCDSPyEvaluationReceipt'}
+                - {type: 'null'}
         signature: {type: string, minLength: 40, maxLength: 256}
+    BYOCDSPyEvaluationReceipt:
+      type: object
+      additionalProperties: false
+      required: [schema_version, tenant_id, deployment_id, evaluation_id, dataset_digest, program_digest, model_config_digest, metric_contract_digest, split_name, metrics, passed, completed_at, signature]
+      properties:
+        schema_version: {type: string, const: autobot.dspy.evaluation-receipt/v1}
+        tenant_id: {type: string}
+        deployment_id: {type: string}
+        evaluation_id: {type: string, format: uuid}
+        dataset_digest: {type: string, pattern: '^sha256:[a-f0-9]{64}$'}
+        program_digest: {type: string, pattern: '^sha256:[a-f0-9]{64}$'}
+        model_config_digest: {type: string, pattern: '^sha256:[a-f0-9]{64}$'}
+        metric_contract_digest: {type: string, pattern: '^sha256:[a-f0-9]{64}$'}
+        split_name: {type: string, enum: [development, holdout, safety]}
+        metrics: {type: object, additionalProperties: {type: number}}
+        passed: {type: boolean}
+        completed_at: {type: string, format: date-time}
+        signature: {type: string, minLength: 32, maxLength: 256}
     BYOCHealthReceipt:
       type: object
       additionalProperties: false
@@ -781,6 +803,6 @@ components:
       type: object
       properties: {detail: {}}
   responses:
-    Operation: {description: Durable operation state, content: {application/json: {schema: {$ref: '#/components/schemas/Operation'}}}}
-    SignedCommand: {description: Signed short-lived command and exact manifest, content: {application/json: {schema: {$ref: '#/components/schemas/SignedCommand'}}}}
-    Error: {description: Typed refusal, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+    Operation: {description: 'Durable operation state', content: {application/json: {schema: {$ref: '#/components/schemas/Operation'}}}}
+    SignedCommand: {description: 'Signed short-lived command and exact manifest', content: {application/json: {schema: {$ref: '#/components/schemas/SignedCommand'}}}}
+    Error: {description: 'Typed refusal', content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}

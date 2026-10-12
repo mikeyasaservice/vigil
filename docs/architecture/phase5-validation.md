@@ -11,7 +11,7 @@ does not claim customer-owned AWS or customer operational readiness.
 
 | Area | Result | Narrow claim |
 |---|---|---|
-| Go connector/spec tests and vet | 7 passed; vet passed | Exact customer binding, immutable release pin, two-person local approval, command replay conflict, expired central lease, foreign tenant denial, sealed local state, contiguous gap markers and restart-persistent emergency revoke behave as specified. |
+| Go connector/spec tests and vet | Passed, including the later DSPy receipt extension | Exact customer binding, immutable release pin, two-person local approval, command replay conflict, expired central lease, foreign tenant denial, sealed local state, contiguous gap markers, restart-persistent emergency revoke and tenant-bound aggregate DSPy evaluation export behave as specified. |
 | PostgreSQL BYOC tests | 4 passed | Enrollment requires token, signing-key proof and the bound SPIFFE identity; signed health is contiguous/idempotent; durable central revocation blocks a fresh store process; Python and Go verify the same RFC 8785 fixtures. |
 | Contract/startup tests | 9 passed | BYOC remains dedicated in the shared manifest contract, every OpenAPI operation is in Postman, unknown health data is rejected and weak enrollment authority prevents startup. |
 | Complete management regression | 28 passed | Phase 3 operations and Phase 4 shared-control behavior remain compatible with the Phase 5 schema and routes. |
@@ -33,7 +33,8 @@ LocalStack does not establish AWS IAM, Organizations/SCP, VPC/private endpoint,
 EKS workload identity, KMS key administration, RDS/Redis isolation or CloudTrail
 behavior. The checkpoint does not issue connector certificates from CSRs, run a
 continuous outbound connector daemon, deploy the Vigil runtime, restore a backup,
-perform customer-controlled deletion, or execute JIT support.
+perform customer-controlled deletion, execute a real tenant-local optimizer against a
+customer dataset, or execute JIT support.
 
 Before a customer pilot, run T08/T09/T10/T11/T15/T16/T17 in a customer-owned AWS
 qualification account, including a long management partition, certificate and

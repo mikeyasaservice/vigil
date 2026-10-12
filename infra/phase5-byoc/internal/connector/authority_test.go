@@ -190,6 +190,34 @@ func TestAlteredLocalAuthorityStateIsRejected(t *testing.T) {
 	}
 }
 
+func TestDSPyEvaluationReceiptExportsOnlyBoundAggregateMetrics(t *testing.T) {
+	authority, binding, _, _, _ := fixture(t)
+	now := time.Now().UTC()
+	receipt := &DSPyEvaluationReceipt{
+		SchemaVersion: "autobot.dspy.evaluation-receipt/v1", TenantID: binding.TenantID,
+		DeploymentID: binding.DeploymentID, EvaluationID: "00000000-0000-4000-8000-000000000031",
+		DatasetDigest: "sha256:" + repeat("1", 64), ProgramDigest: "sha256:" + repeat("2", 64),
+		ModelConfigDigest: "sha256:" + repeat("3", 64), MetricContractDigest: "sha256:" + repeat("4", 64),
+		SplitName: "holdout", Metrics: map[string]float64{"pass_rate": 1}, Passed: true,
+		CompletedAt: now.Format(time.RFC3339Nano), Signature: repeat("s", 64),
+	}
+	if err := authority.QueueHealth("dspy_evaluation", HealthPayload{Status: "healthy", DSPyEvaluation: receipt}, now); err != nil {
+		t.Fatal(err)
+	}
+	event, ok := authority.OldestHealth()
+	if !ok || event.Payload.DSPyEvaluation == nil || event.Payload.DSPyEvaluation.DatasetDigest != receipt.DatasetDigest {
+		t.Fatal("aggregate evaluation receipt was not queued")
+	}
+	foreign := *receipt
+	foreign.TenantID = "tenant-b"
+	if err := authority.QueueHealth("dspy_evaluation", HealthPayload{Status: "healthy", DSPyEvaluation: &foreign}, now); err == nil {
+		t.Fatal("foreign tenant evaluation receipt was accepted")
+	}
+	if err := authority.QueueHealth("heartbeat", HealthPayload{Status: "healthy", DSPyEvaluation: receipt}, now); err == nil {
+		t.Fatal("evaluation fields leaked through an unrelated event kind")
+	}
+}
+
 func repeat(value string, count int) string {
 	result := ""
 	for index := 0; index < count; index++ {

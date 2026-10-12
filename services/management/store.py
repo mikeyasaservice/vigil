@@ -11,13 +11,14 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Iterator
 
 import psycopg2
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+from psycopg2.extras import RealDictCursor
+
 from core.agents.managed_execution import (
     Ed25519Verifier,
     ManagedSecurityError,
     managed_digest,
 )
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
-from psycopg2.extras import RealDictCursor
 from services.management.auth import OperatorIdentity
 from services.management.byoc import enrollment_proof
 from services.management.contracts import (
@@ -1597,6 +1598,12 @@ class ManagementStore:
                 connector["incarnation"]
             ) or event.revocation_epoch != int(connector["revocation_epoch"]):
                 raise ManagementDenied("BYOC health identity is stale")
+            evaluation = event.payload.dspy_evaluation
+            if evaluation is not None and (
+                evaluation.tenant_id != connector["tenant_id"]
+                or evaluation.deployment_id != deployment_id
+            ):
+                raise ManagementDenied("BYOC DSPy evaluation receipt is foreign")
             try:
                 padded = connector["connector_public_key"] + "=" * (
                     -len(connector["connector_public_key"]) % 4

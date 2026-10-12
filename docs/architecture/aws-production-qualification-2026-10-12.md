@@ -69,7 +69,7 @@ identifiers and are intentionally not committed.
 | T10 | Cancellation/revocation across a gateway restart | Partial; active connector/session/credential rotation matrix remains. |
 | T11 | Atomic failed image rollout | Partial; schema expansion/migration checkpoint failures remain. |
 | T12 | Dedicated A/B load threshold passed | Partial for the product; shared-control saturation and budget-store failure remain. |
-| T13 | Artifact digest pinning and irreversible revocation | Partial; datasets, optimizer history, promotion and tenant-local BYOC evaluation remain. |
+| T13 | Artifact digest pinning and irreversible revocation | Partial; the dataset/evaluation/optimization/promotion lifecycle and aggregate BYOC receipt are implemented and locally tested after this AWS run. They have not been redeployed or qualified in these two AWS environments. |
 | T14 | Secret IAM and network isolation | Partial; logs, metrics, traces, alerts and support exports remain. |
 | T15 | Durable management/BYOC audit unit/integration paths plus same-account BYOC offboarding report | Partial; customer-visible export and retention/deletion drill remain. |
 | T16 | Exact Aurora restore, S3 version deletion, two dedicated-stack deletion drills, provisioning-role deletion and same-account BYOC resource deletion | Passed for the tested dedicated data shapes and BYOC resource fixture; regional restore, legal hold and the full application backup set remain. |
@@ -104,6 +104,6 @@ python3 infra/production-qualification/aws/load-qualify.py
 Do not accept live customer data from this report alone. Enterprise SSO/SCIM,
 operator JIT and break-glass, support-session audit, billing/entitlements,
 customer lifecycle automation, a continuous connector deployment with a real
-management endpoint, multi-region recovery, full observability isolation, DSPy
-dataset/optimization/promotion lifecycle and customer-owned AWS qualification
+management endpoint, multi-region recovery, full observability isolation, a live-provider
+DSPy optimization and promotion drill in deployed AWS, and customer-owned AWS qualification
 remain release blockers for the corresponding product surface.

@@ -5,6 +5,33 @@ tenant data plane. No DSPy dependency or production DSPy path was found in the a
 Python requirements or agent source. This is an integration design, not an assertion
 that upstream already uses DSPy.
 
+## Implemented lifecycle checkpoint
+
+The fork now implements the tenant-local lifecycle described here. Migration
+`43_dspy_optimization_lifecycle.sql` adds immutable dataset registrations, evaluation
+history, optimizer history, two-person promotions, deployment bindings and lifecycle
+audit. `/api/v2/dspy` derives tenant and deployment ownership from authenticated
+membership; callers cannot select another tenant. `services/reasoner/optimize.py` runs
+the pinned DSPy 3.4 `MIPROv2` or `BootstrapFewShot` optimizer with explicit model,
+credential reference, token and cost limits, and writes declarative JSON state.
+`services/reasoner/evaluate.py` verifies the candidate digest, signature and deployment
+binding before loading that state for development, holdout or safety evaluation.
+
+Promotion requires passing holdout and safety evaluations for the exact candidate
+digest. A distinct tenant approver signs the exact request digest. Staging registers the
+approved artifact without changing the deployment. A separately approved activation
+signs the runtime registry record with tenant-local authority and creates
+deployment-scoped generation history. Two-person rollback can select only the immediate
+previous approved digest. Dataset and candidate triggers prevent identity/content
+mutation, and revoked candidates cannot be restored. The Phase 5 connector accepts only
+a fixed aggregate evaluation receipt bound to its tenant/deployment and never exports
+examples, prompts, traces or local artifact references. See the
+[validation report](dspy-optimization-lifecycle-validation-2026-10-12.md).
+
+This checkpoint does not claim model-quality improvement. A real provider optimization,
+customer-owned BYOC qualification, deployed Aurora migration, signer rotation and
+production-scale dataset run remain environment-specific release evidence.
+
 ## Program identity and registry records
 
 | Record | Required fields / ownership |
