@@ -48,6 +48,11 @@ class ManagedGrantPayload(BaseModel):
     execution_id: str
     tenant_id: str
     deployment_id: str
+    deployment_incarnation: str
+    workflow_id: str
+    workflow_digest: str
+    program_id: str
+    program_digest: str
     action: str
     resource: str
     argument_digest: str
@@ -172,6 +177,7 @@ def _load_execution(
         execution_id=str(held["execution_id"]),
         tenant_id=str(held["tenant_id"]),
         deployment_id=str(held["deployment_id"]),
+        deployment_incarnation=str(held["deployment_incarnation"]),
         worker_key_id=workload_id,
         workflow_id=str(held["workflow_id"]),
         workflow_digest=str(held["workflow_digest"]),
@@ -330,6 +336,11 @@ def issue_managed_grant(
             execution_id=identity.execution_id,
             tenant_id=identity.tenant_id,
             deployment_id=identity.deployment_id,
+            deployment_incarnation=identity.deployment_incarnation,
+            workflow_id=identity.workflow_id,
+            workflow_digest=identity.workflow_digest,
+            program_id=identity.program_id,
+            program_digest=identity.program_digest,
             action=tool,
             resource=resource,
             argument_digest=argument_digest,
@@ -379,6 +390,15 @@ async def authorize_managed_call(
             raise ManagedSecurityError("grant execution does not match request")
         if grant.tenant_id != identity.tenant_id or grant.deployment_id != identity.deployment_id:
             raise ManagedSecurityError("grant tenant does not match request")
+        if grant.deployment_incarnation != identity.deployment_incarnation:
+            raise ManagedSecurityError("grant deployment incarnation does not match request")
+        if (
+            grant.workflow_id != identity.workflow_id
+            or grant.workflow_digest != identity.workflow_digest
+            or grant.program_id != identity.program_id
+            or grant.program_digest != identity.program_digest
+        ):
+            raise ManagedSecurityError("grant workflow or program does not match request")
         if grant.workload_key_id != workload_id or grant.claim_jti != identity.jti:
             raise ManagedSecurityError("grant belongs to a fenced claim")
         if grant.action != tool or grant.resource != resource:
@@ -397,6 +417,8 @@ async def authorize_managed_call(
             resource=resource,
             arguments=arguments,
             grant=grant,
+            max_rows=body.max_rows,
+            timeout_ms=body.timeout_ms,
         )
         if not invocation.invocation_id:
             raise ManagedSecurityError("invocation id is required")
@@ -452,7 +474,8 @@ def claim_managed_execution(
     try:
         envelope = QueueEnvelope.from_dict(body.envelope)
         deployment_id = os.getenv("VIGIL_DEPLOYMENT_ID", "")
-        if not deployment_id:
+        deployment_incarnation = os.getenv("VIGIL_DEPLOYMENT_INCARNATION", "")
+        if not deployment_id or not deployment_incarnation:
             raise ManagedSecurityError("managed deployment binding is unavailable")
         if not os.getenv("VIGIL_MANAGED_AUTHORITY_PRIVATE_KEY"):
             raise ManagedSecurityError("managed authority signing key is unavailable")
@@ -461,6 +484,7 @@ def claim_managed_execution(
             worker_key_id=workload_id,
             capabilities=_claim_capabilities(body.capabilities),
             deployment_id=deployment_id,
+            deployment_incarnation=deployment_incarnation,
         )
     except ManagedSecurityError as exc:
         logger.warning(
@@ -494,6 +518,7 @@ def claim_managed_execution(
         "execution_id": identity.execution_id,
         "tenant_id": identity.tenant_id,
         "deployment_id": identity.deployment_id,
+        "deployment_incarnation": identity.deployment_incarnation,
         "workflow_id": identity.workflow_id,
         "workflow_digest": identity.workflow_digest,
         "program_id": identity.program_id,
@@ -533,7 +558,8 @@ def update_managed_execution_status(
 
         identity = ExecutionIdentity(
             execution_id=str(held["execution_id"]), tenant_id=str(held["tenant_id"]),
-            deployment_id=str(held["deployment_id"]), worker_key_id=workload_id,
+            deployment_id=str(held["deployment_id"]),
+            deployment_incarnation=str(held["deployment_incarnation"]), worker_key_id=workload_id,
             workflow_id=str(held["workflow_id"]), workflow_digest=str(held["workflow_digest"]),
             program_id=str(held["program_id"]), program_digest=str(held["program_digest"]),
             capabilities=tuple(str(value) for value in raw_capabilities),
@@ -603,7 +629,8 @@ def list_managed_execution_decisions(
 
         identity = ExecutionIdentity(
             execution_id=str(held["execution_id"]), tenant_id=str(held["tenant_id"]),
-            deployment_id=str(held["deployment_id"]), worker_key_id=workload_id,
+            deployment_id=str(held["deployment_id"]),
+            deployment_incarnation=str(held["deployment_incarnation"]), worker_key_id=workload_id,
             workflow_id=str(held["workflow_id"]), workflow_digest=str(held["workflow_digest"]),
             program_id=str(held["program_id"]), program_digest=str(held["program_digest"]),
             capabilities=tuple(str(value) for value in raw_capabilities),

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { httpRecall } from "../../core/recall.js";
+import { httpRecall, managedRecall } from "../../core/recall.js";
 import { nullMemory, recalling } from "../../core/memory.js";
 import { RECALL_TOOL } from "../../contracts/memory.js";
 import { recalledFixture, RECALL_KEYS } from "../support/recalled.js";
@@ -146,5 +146,60 @@ describe("the keyed read over the tool bridge", () => {
   it("gives up rather than holding a run's opening turn open", async () => {
     const memory = httpRecall(nullMemory, { url: URL, token: "t", fetch: hanging, timeoutMs: 5 });
     await expect(memory.entities({ keys: RECALL_KEYS, asOf: AS_OF, runId: "run-1" })).rejects.toThrow(/5ms/);
+  });
+});
+
+describe("the managed keyed read", () => {
+  it("uses an exact gateway grant and never the shared internal token route", async () => {
+    const calls: Array<{ tool: string; args: Record<string, unknown>; logicalId: string }> = [];
+    const memory = managedRecall(nullMemory, async (tool, args, _signal, context) => {
+      calls.push({ tool: tool.id, args, logicalId: context?.logicalId ?? "" });
+      return {
+        ok: true,
+        rows: [RECALLED],
+        rowCount: 1,
+        capped: false,
+        sourceSystem: "memory",
+      };
+    });
+
+    expect(await memory.entities({ keys: RECALL_KEYS, asOf: AS_OF, runId: "run-managed" }))
+      .toEqual(RECALLED);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.tool).toBe(RECALL_TOOL);
+    expect(calls[0]?.args).toEqual({
+      entity_keys: [...RECALL_KEYS],
+      as_of: AS_OF,
+      caller_kind: "run",
+      caller_id: "run-managed",
+    });
+    expect(calls[0]?.logicalId).toContain("memory:run-managed:");
+  });
+
+  it("does not issue a grant for an empty key set", async () => {
+    let calls = 0;
+    const memory = managedRecall(nullMemory, async () => {
+      calls += 1;
+      throw new Error("must not be called");
+    });
+
+    const result = await memory.entities({ keys: [], asOf: AS_OF, runId: "run-managed" });
+    expect(calls).toBe(0);
+    expect(result.keys).toEqual([]);
+  });
+
+  it("keeps retry identity stable while separating different reads", async () => {
+    const logical: string[] = [];
+    const memory = managedRecall(nullMemory, async (_tool, _args, _signal, context) => {
+      logical.push(context?.logicalId ?? "");
+      return { ok: true, rows: [RECALLED], rowCount: 1, capped: false, sourceSystem: "memory" };
+    });
+    const read = { keys: RECALL_KEYS, asOf: AS_OF, runId: "run-managed" };
+    await memory.entities(read);
+    await memory.entities(read);
+    await memory.entities({ ...read, runId: "run-other" });
+
+    expect(logical[0]).toBe(logical[1]);
+    expect(logical[0]).not.toBe(logical[2]);
   });
 });

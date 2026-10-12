@@ -57,7 +57,7 @@ class ManagedRunStore:
 
         with get_db_session() as session:
             rows = session.execute(text("""
-                SELECT m.tenant_id, d.deployment_id, m.roles,
+                SELECT m.tenant_id, d.deployment_id, d.incarnation, m.roles,
                        m.membership_version, d.policy_version, m.issuer
                 FROM managed_memberships m
                 JOIN managed_deployments d ON d.tenant_id = m.tenant_id
@@ -268,6 +268,7 @@ class ManagedRunStore:
                   AND r.workflow_id = :workflow_id
                   AND r.status IN ('queued', 'running')
                   AND d.tenant_id = a.tenant_id AND d.status = 'active'
+                  AND d.incarnation = CAST(:deployment_incarnation AS uuid)
                   AND d.revocation_epoch = a.revocation_epoch
                   AND m.status = 'active'
                   AND m.membership_version = a.membership_version
@@ -281,6 +282,7 @@ class ManagedRunStore:
                 "execution_id": identity.execution_id,
                 "tenant_id": identity.tenant_id,
                 "deployment_id": identity.deployment_id,
+                "deployment_incarnation": identity.deployment_incarnation,
                 "subject_id": context.subject_id,
                 "workflow_id": identity.workflow_id,
                 "workflow_digest": identity.workflow_digest,
@@ -302,13 +304,15 @@ class ManagedRunStore:
             session.execute(text("""
                 INSERT INTO managed_execution_claims
                 (execution_id, worker_key_id, workload_spiffe_id, claim_token,
-                 claim_version, claim_until, status, capabilities)
+                 claim_version, claim_until, status, capabilities,
+                 deployment_incarnation)
                 VALUES (CAST(:execution_id AS uuid), :workload_spiffe_id,
                         :workload_spiffe_id, :claim_token,
                         (SELECT COALESCE(MAX(claim_version), 0) + 1
                          FROM managed_execution_claims
                          WHERE execution_id = CAST(:execution_id AS uuid)),
-                        :claim_until, 'active', CAST(:capabilities AS jsonb))
+                        :claim_until, 'active', CAST(:capabilities AS jsonb),
+                        CAST(:deployment_incarnation AS uuid))
                 ON CONFLICT (execution_id) DO UPDATE SET
                   worker_key_id = EXCLUDED.worker_key_id,
                   workload_spiffe_id = EXCLUDED.workload_spiffe_id,
@@ -316,13 +320,15 @@ class ManagedRunStore:
                   claim_version = managed_execution_claims.claim_version + 1,
                   claim_until = EXCLUDED.claim_until,
                   status = 'active',
-                  capabilities = EXCLUDED.capabilities
+                  capabilities = EXCLUDED.capabilities,
+                  deployment_incarnation = EXCLUDED.deployment_incarnation
             """), {
                 "execution_id": identity.execution_id,
                 "workload_spiffe_id": identity.worker_key_id,
                 "claim_token": identity.jti,
                 "claim_until": identity.expires_at,
                 "capabilities": json.dumps(sorted(set(identity.capabilities))),
+                "deployment_incarnation": identity.deployment_incarnation,
             })
             session.execute(text("""
                 UPDATE managed_runs SET status = 'running', updated_at = now()
@@ -349,7 +355,8 @@ class ManagedRunStore:
                        a.revocation_epoch, c.claimed_at AS issued_at,
                        c.claim_until AS expires_at,
                        c.claim_token AS jti, c.claim_version,
-                       c.workload_spiffe_id, c.capabilities
+                       c.workload_spiffe_id, c.capabilities,
+                       c.deployment_incarnation
                 FROM managed_execution_claims c
                 JOIN managed_admissions a ON a.execution_id = c.execution_id
                 JOIN managed_runs r ON r.execution_id = a.execution_id
@@ -367,6 +374,7 @@ class ManagedRunStore:
                   AND a.status = 'active'
                   AND r.status <> 'cancelled'
                   AND d.status = 'active'
+                  AND c.deployment_incarnation = d.incarnation
                   AND m.status = 'active'
                   AND (a.membership_version IS NULL OR m.membership_version = a.membership_version)
                   AND a.revocation_epoch = d.revocation_epoch

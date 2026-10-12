@@ -198,10 +198,11 @@ case "${1:-preview}" in
   preview) bootstrap; render_tenant a 64; render_tenant b 80; tenant_command a preview; tenant_command b preview ;;
   apply) configure_tenant_profiles; tenant_command a apply; tenant_command b apply ;;
   reconcile) configure_tenant_profiles; tenant_command a reconcile; tenant_command b reconcile ;;
+  isolation-qualify) configure_tenant_profiles; python3 "$script_dir/isolation-qualify.py" ;;
   byoc-qualify) "$script_dir/byoc-qualify.sh" qualify ;;
   byoc-offboard) "$script_dir/byoc-qualify.sh" offboard ;;
   offboard-a) configure_tenant_profiles; tenant_command a offboard ;;
   offboard-b) configure_tenant_profiles; tenant_command b offboard ;;
   offboard) configure_tenant_profiles; tenant_command a offboard; tenant_command b offboard; bootstrap_offboard ;;
-  *) echo "usage: $0 [bootstrap|bootstrap-offboard|prepare|stage|repair-a-coredns|preview|apply|reconcile|byoc-qualify|byoc-offboard|offboard-a|offboard-b|offboard]" >&2; exit 2 ;;
+  *) echo "usage: $0 [bootstrap|bootstrap-offboard|prepare|stage|repair-a-coredns|preview|apply|reconcile|isolation-qualify|byoc-qualify|byoc-offboard|offboard-a|offboard-b|offboard]" >&2; exit 2 ;;
 esac

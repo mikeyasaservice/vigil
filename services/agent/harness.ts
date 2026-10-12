@@ -7,7 +7,7 @@ import { httpPrices } from "./core/prices.js";
 import { Limiter } from "./core/limiter.js";
 import type { Harness } from "./core/loop.js";
 import { nullMemory } from "./core/memory.js";
-import { httpRecall } from "./core/recall.js";
+import { httpRecall, managedRecall } from "./core/recall.js";
 import { registryOf } from "./core/registry.js";
 import { remoteDispatch } from "./core/remote.js";
 import { managedAuthorizer, type ManagedGatewayClient, type ManagedGrant } from "./core/managed-gateway.js";
@@ -156,7 +156,9 @@ export function harnessFor<K extends Record<string, unknown>>(
     // Wrapped rather than replaced: whatever the caller passed still answers the
     // cue-shaped recall, and the keyed read is added over the same endpoint the
     // tools go to -- one address for the far side, not two to keep in step.
-    memory: managed ? nullMemory : httpRecall(memory, { url: tools, token: internalToken() }),
+    memory: managed
+      ? (authorize === undefined ? nullMemory : managedRecall(memory, authorize))
+      : httpRecall(memory, { url: tools, token: internalToken() }),
     state,
   };
 }

@@ -8,6 +8,11 @@ export interface ManagedGrant {
   execution_id: string;
   tenant_id: string;
   deployment_id: string;
+  deployment_incarnation: string;
+  workflow_id: string;
+  workflow_digest: string;
+  program_id: string;
+  program_digest: string;
   action: string;
   resource: string;
   argument_digest: string;
@@ -56,7 +61,14 @@ export function managedAuthorizer(client: ManagedGatewayClient, identity: Manage
     const grant = await client.issue({ identity, tool: tool.id, args, max_rows, timeout_ms }, signal);
     if (grant.execution_id !== identity.execution_id) throw new Error("grant execution does not match the run");
     if (grant.tenant_id !== identity.tenant_id || grant.deployment_id !== identity.deployment_id) throw new Error("grant tenant does not match the run");
+    if (grant.deployment_incarnation !== identity.deployment_incarnation) throw new Error("grant deployment incarnation does not match the run");
+    if (grant.workflow_id !== identity.workflow_id || grant.workflow_digest !== identity.workflow_digest
+      || grant.program_id !== identity.program_id || grant.program_digest !== identity.program_digest) {
+      throw new Error("grant workflow or program does not match the run");
+    }
     if (grant.workload_key_id !== identity.worker_key_id || grant.claim_jti !== identity.jti) throw new Error("grant workload does not match the worker claim");
+    if (grant.policy_version !== identity.policy_version || grant.revocation_epoch !== identity.revocation_epoch) throw new Error("grant policy is stale");
+    if (grant.action !== tool.id) throw new Error("grant action does not match the tool");
     if (Date.parse(grant.expires_at) <= Date.now()) throw new Error("tool grant expired");
     if (grant.max_rows !== max_rows || grant.timeout_ms !== timeout_ms) throw new Error("tool bounds are outside the grant");
     return client.authorize({ grant, identity, tool: tool.id, args, invocation_id: invocationId(identity.execution_id, context.logicalId), max_rows, timeout_ms }, signal);

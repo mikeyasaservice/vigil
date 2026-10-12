@@ -66,7 +66,10 @@ pytestmark.append(
 
 
 def _apply_sql(conn, name: str) -> None:
-    conn.exec_driver_sql((INIT / name).read_text())
+    # Execute migration text through psycopg so PostgreSQL format('%I', ...)
+    # placeholders are not mistaken for DBAPI parameter markers by SQLAlchemy.
+    with conn.connection.cursor() as cursor:
+        cursor.execute((INIT / name).read_text())
 
 
 def _pgcode(exc: ProgrammingError) -> str | None:
@@ -86,8 +89,10 @@ def app_engine():
     password = _parts()["password"]
     with owner.connect() as conn:
         _apply_sql(conn, "19_agent_ledger.sql")
+        _apply_sql(conn, "21_agent_run_leases.sql")
         _apply_sql(conn, "31_agent_ledger_hash_chain.sql")
         _apply_sql(conn, "30_vigil_app_role.sql")
+        _apply_sql(conn, "44_runtime_role_hardening.sql")
         escaped = password.replace("'", "''")
         conn.exec_driver_sql(f"ALTER ROLE vigil_app PASSWORD '{escaped}'")
         conn.commit()
@@ -170,3 +175,30 @@ def test_force_terminal_appends_as_vigil_app(app_engine, monkeypatch):
             .all()
         )
     assert kinds == ["run", "terminal"]
+
+
+def test_runtime_role_cannot_create_shadow_or_truncate_objects(app_engine):
+    denied = (
+        "CREATE TABLE qualification_forbidden(id integer)",
+        "CREATE TEMP TABLE qualification_temp_forbidden(id integer)",
+        "TRUNCATE TABLE agent_events",
+        f"SET ROLE {_parts()['user']}",
+    )
+    for statement in denied:
+        with pytest.raises(ProgrammingError) as refused:
+            with app_engine.connect() as conn:
+                conn.execute(text(statement))
+                conn.commit()
+        assert _pgcode(refused.value) == INSUFFICIENT_PRIVILEGE
+
+    with app_engine.connect() as conn:
+        role = conn.execute(
+            text(
+                "SELECT rolsuper, rolcreatedb, rolcreaterole, rolinherit, "
+                "rolreplication, rolbypassrls FROM pg_roles WHERE rolname=current_user"
+            )
+        ).one()
+        search_path = conn.execute(text("SHOW search_path")).scalar_one()
+
+    assert tuple(role) == (False, False, False, False, False, False)
+    assert search_path == "pg_catalog, public"

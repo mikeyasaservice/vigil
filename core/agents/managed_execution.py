@@ -68,6 +68,7 @@ def managed_digest(value: Mapping[str, Any]) -> str:
 class TenantContext:
     tenant_id: str
     deployment_id: str
+    deployment_incarnation: str
     subject_id: str
     issuer: str
     roles: tuple[str, ...]
@@ -76,7 +77,7 @@ class TenantContext:
     request_id: str
 
     def __post_init__(self) -> None:
-        if not all((self.tenant_id, self.deployment_id, self.subject_id, self.issuer, self.request_id)):
+        if not all((self.tenant_id, self.deployment_id, self.deployment_incarnation, self.subject_id, self.issuer, self.request_id)):
             raise ManagedSecurityError("tenant context fields are required")
         if self.membership_version < 1:
             raise ManagedSecurityError("membership version must be positive")
@@ -85,6 +86,7 @@ class TenantContext:
         return {
             "tenant_id": self.tenant_id,
             "deployment_id": self.deployment_id,
+            "deployment_incarnation": self.deployment_incarnation,
             "subject_id": self.subject_id,
             "issuer": self.issuer,
             "roles": list(self.roles),
@@ -154,6 +156,7 @@ class QueueEnvelope:
             context = TenantContext(
                 tenant_id=str(context_raw["tenant_id"]),
                 deployment_id=str(context_raw["deployment_id"]),
+                deployment_incarnation=str(context_raw["deployment_incarnation"]),
                 subject_id=str(context_raw["subject_id"]),
                 issuer=str(context_raw["issuer"]),
                 roles=tuple(str(role) for role in context_raw["roles"]),
@@ -189,6 +192,7 @@ class ExecutionIdentity:
     execution_id: str
     tenant_id: str
     deployment_id: str
+    deployment_incarnation: str
     worker_key_id: str
     workflow_id: str
     workflow_digest: str
@@ -208,6 +212,11 @@ class ToolGrant:
     execution_id: str
     tenant_id: str
     deployment_id: str
+    deployment_incarnation: str
+    workflow_id: str
+    workflow_digest: str
+    program_id: str
+    program_digest: str
     action: str
     resource: str
     argument_digest: str
@@ -231,6 +240,11 @@ class ToolGrant:
             "execution_id": self.execution_id,
             "tenant_id": self.tenant_id,
             "deployment_id": self.deployment_id,
+            "deployment_incarnation": self.deployment_incarnation,
+            "workflow_id": self.workflow_id,
+            "workflow_digest": self.workflow_digest,
+            "program_id": self.program_id,
+            "program_digest": self.program_digest,
             "action": self.action,
             "resource": self.resource,
             "argument_digest": self.argument_digest,
@@ -259,10 +273,14 @@ class Invocation:
     arguments: Mapping[str, Any]
     grant: ToolGrant
     budget_units: int = 1
+    max_rows: int = 100
+    timeout_ms: int = 30_000
 
     def __post_init__(self) -> None:
         if self.budget_units <= 0:
             raise ManagedSecurityError("invocation budget must be positive")
+        if self.max_rows <= 0 or self.timeout_ms <= 0:
+            raise ManagedSecurityError("invocation bounds must be positive")
 
     @property
     def argument_digest(self) -> str:
@@ -386,7 +404,8 @@ class ManagedAuthority:
         )
 
     def verify_envelope(
-        self, envelope: QueueEnvelope, *, deployment_id: str, allow_expired: bool = False
+        self, envelope: QueueEnvelope, *, deployment_id: str,
+        deployment_incarnation: Optional[str] = None, allow_expired: bool = False
     ) -> Admission:
         (self.verifier or self.signer.verifier()).verify(envelope.signed_payload, envelope.signature)
         admission = self.admissions.get(envelope.admission.admission_id)
@@ -422,6 +441,11 @@ class ManagedAuthority:
                 raise ManagedSecurityError("queue program digest binding is invalid")
         if admission.context.deployment_id != deployment_id:
             raise ManagedSecurityError("queue target is not the admission deployment")
+        if (
+            deployment_incarnation is not None
+            and admission.context.deployment_incarnation != deployment_incarnation
+        ):
+            raise ManagedSecurityError("queue target is from another deployment incarnation")
         if not allow_expired and admission.expires_at <= _now():
             raise ManagedSecurityError("admission has expired")
         if admission.revocation_epoch < self.revoked_epochs.get(admission.context.tenant_id, 0):
@@ -435,6 +459,7 @@ class ManagedAuthority:
         admission = self.verify_envelope(
             envelope,
             deployment_id=envelope.admission.context.deployment_id,
+            deployment_incarnation=envelope.admission.context.deployment_incarnation,
             allow_expired=reason == "resume",
         )
         if reason == "resume":
@@ -462,9 +487,14 @@ class ManagedAuthority:
         worker_key_id: str,
         capabilities: Iterable[str],
         deployment_id: Optional[str] = None,
+        deployment_incarnation: Optional[str] = None,
     ) -> ExecutionIdentity:
         expected_deployment = deployment_id or envelope.admission.context.deployment_id
-        admission = self.verify_envelope(envelope, deployment_id=expected_deployment)
+        admission = self.verify_envelope(
+            envelope,
+            deployment_id=expected_deployment,
+            deployment_incarnation=deployment_incarnation,
+        )
         existing = self.executions.get(envelope.execution_id)
         if existing is not None:
             if existing.worker_key_id != worker_key_id:
@@ -477,6 +507,7 @@ class ManagedAuthority:
             execution_id=envelope.execution_id,
             tenant_id=admission.context.tenant_id,
             deployment_id=admission.context.deployment_id,
+            deployment_incarnation=admission.context.deployment_incarnation,
             worker_key_id=worker_key_id,
             workflow_id=admission.workflow_id,
             workflow_digest=admission.workflow_digest,
@@ -503,6 +534,7 @@ class ManagedAuthority:
             "execution_id": identity.execution_id,
             "tenant_id": identity.tenant_id,
             "deployment_id": identity.deployment_id,
+            "deployment_incarnation": identity.deployment_incarnation,
             "worker_key_id": identity.worker_key_id,
             "workflow_id": identity.workflow_id,
             "workflow_digest": identity.workflow_digest,
@@ -577,6 +609,11 @@ class ManagedAuthority:
             execution_id=identity.execution_id,
             tenant_id=identity.tenant_id,
             deployment_id=identity.deployment_id,
+            deployment_incarnation=identity.deployment_incarnation,
+            workflow_id=identity.workflow_id,
+            workflow_digest=identity.workflow_digest,
+            program_id=identity.program_id,
+            program_digest=identity.program_digest,
             action=action,
             resource=resource,
             argument_digest=argument_digest,
@@ -626,6 +663,15 @@ class ManagedAuthority:
             raise ManagedSecurityError("grant execution does not match invocation")
         if grant.tenant_id != identity.tenant_id or grant.deployment_id != identity.deployment_id:
             raise ManagedSecurityError("grant tenant does not match execution")
+        if grant.deployment_incarnation != identity.deployment_incarnation:
+            raise ManagedSecurityError("grant deployment incarnation does not match execution")
+        if (
+            grant.workflow_id != identity.workflow_id
+            or grant.workflow_digest != identity.workflow_digest
+            or grant.program_id != identity.program_id
+            or grant.program_digest != identity.program_digest
+        ):
+            raise ManagedSecurityError("grant workflow or program does not match execution")
         if grant.workload_key_id != identity.worker_key_id:
             raise ManagedSecurityError("grant workload does not match execution")
         if grant.claim_jti != identity.jti:
@@ -636,11 +682,17 @@ class ManagedAuthority:
             raise ManagedSecurityError("invocation identity does not match grant")
         if grant.resource != invocation.resource or grant.argument_digest != invocation.argument_digest:
             raise ManagedSecurityError("invocation arguments are outside the grant")
+        if grant.max_rows != invocation.max_rows or grant.timeout_ms != invocation.timeout_ms:
+            raise ManagedSecurityError("invocation bounds are outside the grant")
         if grant.approval_digest is not None:
             approval = self.approvals.get(grant.approval_digest)
             if approval != (identity.execution_id, invocation.action, invocation.resource, invocation.argument_digest):
                 raise ManagedSecurityError("approval binding is invalid")
-        digest = _digest({"action": invocation.action, "resource": invocation.resource, "arguments": dict(invocation.arguments)})
+        digest = _digest({
+            "action": invocation.action, "resource": invocation.resource,
+            "arguments": dict(invocation.arguments), "max_rows": invocation.max_rows,
+            "timeout_ms": invocation.timeout_ms,
+        })
         prior = self.invocation_reservations.get(invocation.invocation_id)
         if prior is not None:
             if prior != digest:
@@ -655,7 +707,11 @@ class ManagedAuthority:
         self.budgets[identity.execution_id] = remaining - invocation.budget_units
 
     def record_invocation(self, invocation: Invocation, result: Any) -> None:
-        digest = _digest({"action": invocation.action, "resource": invocation.resource, "arguments": dict(invocation.arguments)})
+        digest = _digest({
+            "action": invocation.action, "resource": invocation.resource,
+            "arguments": dict(invocation.arguments), "max_rows": invocation.max_rows,
+            "timeout_ms": invocation.timeout_ms,
+        })
         prior = self.invocation_results.get(invocation.invocation_id)
         if prior is not None and prior[0] != digest:
             raise ManagedSecurityError("invocation id was reused with different content")

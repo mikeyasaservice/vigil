@@ -209,9 +209,10 @@ managedExecution:
   enabled: false
   nodeSelector: {}
   deploymentId: ""
+  deploymentIncarnation: ""
   authIssuer: ""
   authAudience: ""
-  capabilities: "get_finding,case_records"
+  capabilities: "get_finding,case_records,recall_entity"
   trustDomain: ""
   spireAgentSocketHostPath: /run/spire/agent-sockets/spire-agent.sock
   trustSecretName: ""
@@ -237,7 +238,7 @@ managedExecution:
       repository: ""
       tag: ""
       pullPolicy: ""
-    builtinTools: "get_finding,case_records"
+    builtinTools: "get_finding,case_records,recall_entity"
     bindingsJson: "{}"
     credentialSecretName: ""
     # Exact external connector destinations, expressed as network CIDRs. Empty
@@ -492,6 +493,8 @@ dbInit:
     - 41_managed_execution.sql
     - 42_managed_workload_identity.sql
     - 43_dspy_optimization_lifecycle.sql
+    - 44_runtime_role_hardening.sql
+    - 45_claim_incarnation_binding.sql
   resources:
     requests:
       cpu: 50m

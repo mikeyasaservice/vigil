@@ -391,6 +391,45 @@
       ]
     },
     {
+      "name": "Gateway status denial without mTLS",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"execution_id\": \"{{executionId}}\",\n  \"claim_token\": \"{{claimToken}}\",\n  \"attestation\": \"{{attestation}}\",\n  \"status\": \"running\"\n}"
+        },
+        "url": {
+          "raw": "{{gatewayUrl}}/v1/status",
+          "host": [
+            "{{gatewayUrl}}"
+          ],
+          "path": [
+            "v1",
+            "status"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"unverified workload is denied\", function () {",
+              "  pm.expect(pm.response.code).to.be.oneOf([401, 403, 503]);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
       "name": "Gateway decisions denial without mTLS",
       "request": {
         "method": "POST",

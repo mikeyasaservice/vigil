@@ -66,8 +66,9 @@ render_tenant() {
   values="$root/vigil-values.yaml"
   store="$root/secret-store.yaml"
   spire_values="$root/spire-values.yaml"
-  local deployment database secret role backend agent connector reasoner daemon trust_domain
+  local deployment incarnation database secret role backend agent connector reasoner daemon trust_domain
   deployment="$(jq -er .deploymentId "$outputs")"
+  incarnation="$(jq -er .incarnation "$root/manifest.json")"
   database="$(jq -er .databaseEndpoint "$outputs")"
   secret="$(jq -er .runtimeSecretArn "$outputs")"
   role="$(jq -er .externalSecretsRoleArn "$outputs")"
@@ -176,9 +177,10 @@ config:
 managedExecution:
   enabled: true
   deploymentId: $deployment
+  deploymentIncarnation: $incarnation
   authIssuer: urn:autobot:auth:$deployment
   authAudience: vigil-managed-api
-  capabilities: get_finding,case_records
+  capabilities: get_finding,case_records,recall_entity
   trustDomain: $trust_domain
   trustSecretName: vigil-secrets
   security:
@@ -186,7 +188,7 @@ managedExecution:
   connector:
     replicaCount: 1
     image: { repository: $connector, tag: $image_tag }
-    builtinTools: get_finding,case_records
+    builtinTools: get_finding,case_records,recall_entity
     bindingsJson: '{}'
   reasoner:
     replicaCount: 1

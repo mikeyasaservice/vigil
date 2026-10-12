@@ -1,7 +1,7 @@
 """Tenant-local connector for the managed triage read profile.
 
 This process deliberately contains no backend tool registry. Its database role
-can read only the four tables used by these two reviewed operations.
+can read only the reviewed finding, case-record and episodic-memory tables.
 """
 from __future__ import annotations
 
@@ -65,6 +65,22 @@ def _connection():
 
 
 def _read(body: ConnectorInvokeRequest) -> list[dict[str, Any]]:
+    if body.tool == "recall_entity":
+        # The authenticated execution, rather than the worker's arguments, owns
+        # the audit attribution.  The connector still uses the shared recall
+        # implementation so caps, ordering and the read-log contract cannot
+        # drift between standalone and managed execution.
+        from core.memory.recall import recall_entity
+
+        args = {
+            "entity_keys": body.args.get("entity_keys"),
+            "entity_key": body.args.get("entity_key"),
+            "as_of": body.args.get("as_of"),
+            "caller_kind": "execution",
+            "caller_id": body.execution_id,
+        }
+        return [recall_entity(args)]
+
     with _connection() as connection, connection.cursor(cursor_factory=RealDictCursor) as cursor:
         cursor.execute("SET TRANSACTION READ ONLY")
         cursor.execute("SET LOCAL statement_timeout = %s", (body.timeout_ms,))
@@ -106,7 +122,7 @@ def invoke(body: ConnectorInvokeRequest, request: Request,
     _binding(body)
     try:
         rows = _read(body)
-    except (KeyError, ValueError):
+    except (KeyError, TypeError, ValueError):
         return {"ok": False, "failure": {"kind": "invalid_args", "detail": "connector arguments were rejected"}}
     except Exception:
         return {"ok": False, "failure": {"kind": "backend_error", "detail": "connector execution failed"}}

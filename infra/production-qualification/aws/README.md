@@ -18,8 +18,15 @@ export VIGIL_CONTROL_PLANE_CIDR='<qualifying-host-public-ip>/32'
 export AUTOBOT_AWS_ACCOUNT_ID="$VIGIL_AWS_ACCOUNT_ID"
 ./infra/production-qualification/aws/qualify.sh preview
 ./infra/production-qualification/aws/qualify.sh apply
+./infra/production-qualification/aws/qualify.sh isolation-qualify
 ./infra/production-qualification/aws/qualify.sh offboard
 ```
+
+`isolation-qualify` runs the T01-T06/T14 matrix against the deployed A/B
+applications, databases, Valkey brokers, S3 buckets, security gateways,
+connectors, and DSPy reasoners. It records raw evidence under the private work
+root and returns nonzero if any positive control, denial, or unchanged-state
+oracle fails. Run `deploy-apps.sh` for both tenants before this command.
 
 Offboarding first changes the trusted lifecycle state so Pulumi can remove deletion
 protection and resource protection, then destroys both tenant stacks and the temporary

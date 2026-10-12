@@ -40,10 +40,11 @@
         "revocation_epoch": {"type": "integer", "minimum": 0},
         "context": {
           "type": "object",
-          "required": ["tenant_id", "deployment_id", "subject_id", "issuer", "roles", "membership_version", "policy_version", "request_id"],
+          "required": ["tenant_id", "deployment_id", "deployment_incarnation", "subject_id", "issuer", "roles", "membership_version", "policy_version", "request_id"],
           "properties": {
             "tenant_id": {"type": "string", "minLength": 1},
             "deployment_id": {"type": "string", "minLength": 1},
+            "deployment_incarnation": {"type": "string", "format": "uuid"},
             "subject_id": {"type": "string", "minLength": 1},
             "issuer": {"type": "string", "minLength": 1},
             "roles": {"type": "array", "items": {"type": "string"}},

@@ -54,6 +54,7 @@ def context(tenant: str = "tenant-a") -> TenantContext:
     return TenantContext(
         tenant_id=tenant,
         deployment_id=f"deployment-{tenant}",
+        deployment_incarnation="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
         subject_id="user-a",
         issuer="https://issuer.test",
         roles=("analyst",),
@@ -83,6 +84,22 @@ def test_signed_admission_rejects_tampering_before_claim() -> None:
     )
     with pytest.raises(ManagedSecurityError):
         authority.claim(tampered, worker_key_id="worker-a", capabilities=("findings.read",))
+
+
+def test_old_deployment_incarnation_is_rejected_before_claim() -> None:
+    authority = ManagedAuthority()
+    envelope = authority.admit(
+        context(), admission_id="old-incarnation", workflow_id="triage-v1",
+        workflow_digest="workflow-digest", program_id="triage-dspy-v1",
+        program_digest="program-digest", request={},
+    )
+
+    with pytest.raises(ManagedSecurityError, match="incarnation"):
+        authority.claim(
+            envelope, worker_key_id="worker-a", capabilities=("findings.read",),
+            deployment_id="deployment-tenant-a",
+            deployment_incarnation="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+        )
 
 
 def test_signed_envelope_transport_round_trip_remains_claimable() -> None:
@@ -144,6 +161,67 @@ def test_tool_grant_signature_binds_arguments_bounds_and_claim() -> None:
     ):
         with pytest.raises(ManagedSecurityError):
             authority.verify_tool_grant(changed)
+
+
+def test_signed_grant_substitution_matrix_denies_without_charging_budget() -> None:
+    """A valid authority signature is insufficient when any execution binding differs."""
+    authority = ManagedAuthority()
+    identity = authority.claim(
+        authority.admit(
+            context(), admission_id="grant-matrix", workflow_id="triage-v1",
+            workflow_digest="workflow-a", program_id="triage-dspy-v1",
+            program_digest="program-a", request={},
+        ),
+        worker_key_id="worker-a", capabilities=("findings.read",),
+    )
+    original = authority.grant(
+        identity, grant_id="matrix-grant", action="findings.read",
+        resource="finding-a", arguments={"id": "finding-a"},
+        workload_key_id="worker-a", max_rows=7, timeout_ms=900,
+    )
+    positive = Invocation(
+        "matrix-positive", identity.execution_id, identity.tenant_id,
+        "findings.read", "finding-a", {"id": "finding-a"}, original,
+        max_rows=7, timeout_ms=900,
+    )
+    authority.authorize(positive)
+    baseline = authority.budgets[identity.execution_id]
+
+    substitutions = {
+        "execution_id": "00000000-0000-4000-8000-000000000002",
+        "tenant_id": "tenant-b",
+        "deployment_id": "deployment-b",
+        "deployment_incarnation": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+        "workflow_id": "foreign-workflow",
+        "workflow_digest": "foreign-workflow-digest",
+        "program_id": "foreign-program",
+        "program_digest": "foreign-program-digest",
+        "action": "foreign.action",
+        "resource": "finding-b",
+        "argument_digest": "0" * 64,
+        "policy_version": "policy-2",
+        "revocation_epoch": 1,
+        "workload_key_id": "worker-b",
+        "claim_jti": "foreign-claim",
+        "max_rows": 8,
+        "timeout_ms": 901,
+    }
+    for field_name, foreign_value in substitutions.items():
+        forged = authority.sign_tool_grant(
+            replace(original, signature="", **{field_name: foreign_value})
+        )
+        authority.grants[original.grant_id] = forged
+        with pytest.raises(ManagedSecurityError):
+            authority.authorize(replace(positive, invocation_id=f"matrix-{field_name}", grant=forged))
+        assert authority.budgets[identity.execution_id] == baseline, field_name
+
+    authority.grants[original.grant_id] = original
+    with pytest.raises(ManagedSecurityError):
+        authority.authorize(replace(
+            positive, invocation_id="matrix-invalid-signature",
+            grant=replace(original, signature="invalid"),
+        ))
+    assert authority.budgets[identity.execution_id] == baseline
 
 
 def test_revocation_and_missing_budget_fail_closed() -> None:

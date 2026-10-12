@@ -298,14 +298,36 @@ import pg from "pg";
 const c = new pg.Client({host:process.env.POSTGRES_HOST, port:Number(process.env.POSTGRES_PORT), database:process.env.POSTGRES_DB, user:process.env.POSTGRES_USER, password:process.env.POSTGRES_PASSWORD, ssl:{rejectUnauthorized:true}});
 await c.connect();
 const who = await c.query("select current_user");
+const initialPath = await c.query("show search_path");
 const good = await c.query("select count(*)::int as n from agent_run_leases");
-let protectedDenied=false, roleDenied=false, ddlDenied=false;
+let protectedDenied=false, domainDenied=false, joinDenied=false, roleDenied=false,
+  ddlDenied=false, truncateDenied=false, functionDenied=false, tempDenied=false,
+  searchPathDenied=false, recoveredAfterError=false;
 try { await c.query("select count(*) from managed_memberships"); } catch(e) { protectedDenied=e.code === "42501"; }
+try { await c.query("select count(*) from cases"); } catch(e) { domainDenied=e.code === "42501"; }
+try { await c.query("select count(*) from cases c join case_evidence e using (case_id)"); } catch(e) { joinDenied=e.code === "42501"; }
 try { await c.query("set role vigil_app"); } catch(e) { roleDenied=e.code === "42501"; }
 try { await c.query("create table qualification_forbidden(id int)"); } catch(e) { ddlDenied=e.code === "42501"; }
+try { await c.query("create temp table qualification_temp_forbidden(id int)"); } catch(e) { tempDenied=e.code === "42501"; }
+try { await c.query("truncate agent_run_leases"); } catch(e) { truncateDenied=e.code === "42501"; }
+try { await c.query("create function public.qualification_forbidden() returns int language sql as 'select 1'"); } catch(e) { functionDenied=e.code === "42501"; }
+await c.query("set search_path to public, pg_catalog");
+try { await c.query("select count(*) from managed_memberships"); } catch(e) { searchPathDenied=e.code === "42501"; }
+await c.query("begin");
+try { await c.query("select count(*) from managed_memberships"); } catch {}
+await c.query("rollback");
+recoveredAfterError=(await c.query("select count(*)::int as n from agent_run_leases")).rows[0].n >= 0;
 await c.end();
-console.log(JSON.stringify({db_user:who.rows[0].current_user, ledger_control:good.rows[0].n, protected_table_denied:protectedDenied, set_role_denied:roleDenied, ddl_denied:ddlDenied}));
-if (!(protectedDenied && roleDenied && ddlDenied)) process.exit(9);
+console.log(JSON.stringify({db_user:who.rows[0].current_user,
+  initial_search_path:initialPath.rows[0].search_path,ledger_control:good.rows[0].n,
+  protected_table_denied:protectedDenied,domain_table_denied:domainDenied,
+  join_denied:joinDenied,set_role_denied:roleDenied,ddl_denied:ddlDenied,
+  temp_denied:tempDenied,truncate_denied:truncateDenied,
+  function_denied:functionDenied,search_path_bypass_denied:searchPathDenied,
+  recovered_after_failed_transaction:recoveredAfterError}));
+if (!(protectedDenied && domainDenied && joinDenied && roleDenied && ddlDenied &&
+      tempDenied && truncateDenied && functionDenied && searchPathDenied &&
+      recoveredAfterError)) process.exit(9);
 '''
     result = kubectl(name, "exec", "-n", "vigil", "deploy/vigil-agent-worker", "-c", "agent-worker", "--", "node", "--input-type=module", "-e", script)
     return json.loads(result.stdout.strip().splitlines()[-1])

@@ -21,6 +21,7 @@ export interface ManagedExecutionIdentity {
   execution_id: string;
   tenant_id: string;
   deployment_id: string;
+  deployment_incarnation: string;
   workflow_id: string;
   workflow_digest: string;
   program_id: string;
@@ -73,10 +74,14 @@ export function verifyManagedEnvelope(envelope: ManagedQueueEnvelope, now = Date
   const authorityKey = process.env["VIGIL_MANAGED_AUTHORITY_PUBLIC_KEY"] ?? "";
   if (authorityKey === "") throw new ManagedAdmissionError("managed authority key is not configured");
   const deploymentId = process.env["VIGIL_DEPLOYMENT_ID"] ?? "";
+  const deploymentIncarnation = process.env["VIGIL_DEPLOYMENT_INCARNATION"] ?? "";
   const admission = envelope.admission;
   const context = admission["context"] as Record<string, unknown> | undefined;
   if (!context || context["deployment_id"] !== deploymentId) {
     throw new ManagedAdmissionError("managed job targets another deployment");
+  }
+  if (deploymentIncarnation === "" || context["deployment_incarnation"] !== deploymentIncarnation) {
+    throw new ManagedAdmissionError("managed job targets another deployment incarnation");
   }
   if (envelope.references["request_digest"] !== admission["request_digest"] ||
       !envelope.references["run_id"] || !envelope.references["run_kind"]) {
@@ -151,6 +156,7 @@ export function claimManagedExecution(job: RunJob): ManagedExecutionIdentity | n
     execution_id: job.managed.execution_id,
     tenant_id: String(context["tenant_id"]),
     deployment_id: String(context["deployment_id"]),
+    deployment_incarnation: String(context["deployment_incarnation"]),
     workflow_id: String(admission["workflow_id"]),
     workflow_digest: String(admission["workflow_digest"]),
     program_id: String(admission["program_id"]),
@@ -187,7 +193,7 @@ export async function claimManagedExecutionFromService(job: RunJob): Promise<Man
     throw new ManagedAdmissionError("managed claim returned an invalid identity");
   }
   const identity = value as Record<string, unknown>;
-  for (const key of ["execution_id", "tenant_id", "deployment_id", "workload_spiffe_id", "jti", "attestation"] as const) {
+  for (const key of ["execution_id", "tenant_id", "deployment_id", "deployment_incarnation", "workload_spiffe_id", "jti", "attestation"] as const) {
     if (typeof identity[key] !== "string" || identity[key] === "") {
       throw new ManagedAdmissionError("managed claim returned an invalid identity");
     }

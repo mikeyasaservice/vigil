@@ -53,7 +53,7 @@ spec:
                 [ "$i" = "120" ] && { echo "ERROR: PostgreSQL did not become ready" >&2; exit 1; }
                 sleep 2
               done
-              tables="findings finding_mitre_predictions case_tasks case_escalations"
+              tables="findings finding_mitre_predictions case_tasks case_escalations episodic_sightings episodic_verdicts episodic_verdict_sources episodic_gaps episodic_read_log"
               for i in $(seq 1 120); do
                 missing=""
                 for table in $tables; do
@@ -68,10 +68,17 @@ spec:
                 sleep 2
               done
               psql -v ON_ERROR_STOP=1 <<'SQL'
-              GRANT SELECT ON findings, finding_mitre_predictions, case_tasks, case_escalations TO vigil_connector;
+              GRANT SELECT ON findings, finding_mitre_predictions, case_tasks, case_escalations,
+                episodic_sightings, episodic_verdicts, episodic_verdict_sources, episodic_gaps
+                TO vigil_connector;
+              GRANT INSERT ON episodic_read_log TO vigil_connector;
+              GRANT USAGE, SELECT ON SEQUENCE episodic_read_log_id_seq TO vigil_connector;
               REVOKE INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER
-                ON findings, finding_mitre_predictions, case_tasks, case_escalations
+                ON findings, finding_mitre_predictions, case_tasks, case_escalations,
+                   episodic_sightings, episodic_verdicts, episodic_verdict_sources, episodic_gaps
                 FROM vigil_connector;
+              REVOKE SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER
+                ON episodic_read_log FROM vigil_connector;
               SQL
               echo "Managed connector database privileges reconciled."
           resources: {{- toYaml .Values.dbInit.resources | nindent 12 }}

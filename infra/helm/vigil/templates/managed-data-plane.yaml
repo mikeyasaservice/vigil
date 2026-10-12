@@ -77,6 +77,7 @@ spec:
             - { name: HOME, value: /home/vigil }
             - { name: VIGIL_EXECUTION_PROFILE, value: managed }
             - { name: VIGIL_DEPLOYMENT_ID, value: {{ required "managedExecution.deploymentId is required" .Values.managedExecution.deploymentId | quote }} }
+            - { name: VIGIL_DEPLOYMENT_INCARNATION, value: {{ required "managedExecution.deploymentIncarnation is required" .Values.managedExecution.deploymentIncarnation | quote }} }
             - { name: VIGIL_WORKER_SPIFFE_ID, value: {{ $workerId | quote }} }
             - { name: VIGIL_MANAGED_CAPABILITIES, value: {{ .Values.managedExecution.capabilities | quote }} }
             - { name: VIGIL_MANAGED_BUILTIN_TOOLS, value: {{ .Values.managedExecution.connector.builtinTools | quote }} }

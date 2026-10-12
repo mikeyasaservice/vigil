@@ -84,6 +84,7 @@ class ManagedApprovalRequest(BaseModel):
 class MembershipBinding:
     tenant_id: str
     deployment_id: str
+    deployment_incarnation: str
     roles: tuple[str, ...]
     membership_version: int = 1
     policy_version: str = "managed-v1"
@@ -114,6 +115,7 @@ class MembershipResolver:
             return MembershipBinding(
                 tenant_id=str(item["tenant_id"]),
                 deployment_id=str(item["deployment_id"]),
+                deployment_incarnation=str(item["incarnation"]),
                 roles=tuple(str(role) for role in raw_roles),
                 membership_version=int(item.get("membership_version", 1)),
                 policy_version=str(item.get("policy_version", "managed-v1")),
@@ -148,6 +150,7 @@ def validate_managed_startup() -> None:
         return
     required = (
         "VIGIL_DEPLOYMENT_ID",
+        "VIGIL_DEPLOYMENT_INCARNATION",
         "VIGIL_MANAGED_AUTHORITY_PRIVATE_KEY",
         "VIGIL_AUTH_ISSUER",
         "VIGIL_AUTH_AUDIENCE",
@@ -220,6 +223,7 @@ async def start_managed_run(
     context = TenantContext(
         tenant_id=binding.tenant_id,
         deployment_id=binding.deployment_id,
+        deployment_incarnation=binding.deployment_incarnation,
         subject_id=str(current_user.user_id),
         issuer=binding.issuer,
         roles=binding.roles,

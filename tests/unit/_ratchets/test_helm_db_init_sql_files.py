@@ -68,6 +68,8 @@ def test_managed_security_schema_is_in_the_chart_bundle() -> None:
             "41_managed_execution.sql",
             "42_managed_workload_identity.sql",
             "43_dspy_optimization_lifecycle.sql",
+            "44_runtime_role_hardening.sql",
+            "45_claim_incarnation_binding.sql",
         )
     )
     for required in (

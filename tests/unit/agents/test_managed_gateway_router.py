@@ -74,7 +74,9 @@ def test_gateway_issues_a_signed_exact_bound_grant(monkeypatch: pytest.MonkeyPat
         def authorization_context(self, execution_id, workload_id, claim_token):
             return {
                 "execution_id": execution_id, "tenant_id": "tenant-a",
-                "deployment_id": "deployment-a", "workflow_id": "triage-v1",
+                "deployment_id": "deployment-a",
+                "deployment_incarnation": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+                "workflow_id": "triage-v1",
                 "workflow_digest": "workflow-digest", "program_id": "triage-dspy-v1",
                 "program_digest": "program-digest", "capabilities": ["get_finding"],
                 "policy_version": "policy-1", "revocation_epoch": 0,
@@ -96,6 +98,7 @@ def test_gateway_issues_a_signed_exact_bound_grant(monkeypatch: pytest.MonkeyPat
     body = ManagedGrantRequest(
         execution_id="00000000-0000-4000-8000-000000000001",
         tenant_id="tenant-a", deployment_id="deployment-a",
+        deployment_incarnation="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
         claim_token="claim-1", attestation="signed-execution",
         tool="get_finding", args={"finding_id": "finding-a"},
         max_rows=7, timeout_ms=900,
@@ -118,6 +121,7 @@ def test_denial_audit_uses_resolved_identity_and_ignores_unresolved_requests() -
     identity = ExecutionIdentity(
         execution_id="00000000-0000-4000-8000-000000000001",
         tenant_id="tenant-a", deployment_id="deployment-a",
+        deployment_incarnation="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
         worker_key_id=WORKLOAD, workflow_id="triage-v1",
         workflow_digest="workflow-digest", program_id="triage-dspy-v1",
         program_digest="program-digest", capabilities=("get_finding",),
@@ -161,6 +165,7 @@ async def test_waiting_status_binds_the_worker_checkpoint(monkeypatch: pytest.Mo
                 "execution_id": execution_id,
                 "tenant_id": "tenant-a",
                 "deployment_id": "deployment-a",
+                "deployment_incarnation": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
                 "workflow_id": "triage-v1",
                 "workflow_digest": "workflow-digest",
                 "program_id": "triage-dspy-v1",
@@ -221,7 +226,9 @@ async def test_waiting_status_without_exact_action_is_denied(monkeypatch: pytest
         def authorization_context(self, execution_id, workload_id, claim_token):
             return {
                 "execution_id": execution_id, "tenant_id": "tenant-a",
-                "deployment_id": "deployment-a", "workflow_id": "triage-v1",
+                "deployment_id": "deployment-a",
+                "deployment_incarnation": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+                "workflow_id": "triage-v1",
                 "workflow_digest": "w", "program_id": "triage-dspy-v1",
                 "program_digest": "p", "capabilities": ["findings.read"],
                 "policy_version": "policy-1", "revocation_epoch": 0,

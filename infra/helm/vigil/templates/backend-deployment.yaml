@@ -73,6 +73,8 @@ spec:
               value: managed
             - name: VIGIL_DEPLOYMENT_ID
               value: {{ required "managedExecution.deploymentId is required" .Values.managedExecution.deploymentId | quote }}
+            - name: VIGIL_DEPLOYMENT_INCARNATION
+              value: {{ required "managedExecution.deploymentIncarnation is required" .Values.managedExecution.deploymentIncarnation | quote }}
             - name: VIGIL_AUTH_ISSUER
               value: {{ required "managedExecution.authIssuer is required" .Values.managedExecution.authIssuer | quote }}
             - name: VIGIL_AUTH_AUDIENCE

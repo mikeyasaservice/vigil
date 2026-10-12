@@ -1,7 +1,7 @@
 import { emptyRecall, recallOf, RECALL_TOOL, type RecallResult } from "../contracts/memory.js";
-import type { ToolResult } from "../contracts/tool.js";
+import { defineTool, type RegisteredTool, type ToolResult } from "../contracts/tool.js";
 import { deadline } from "./remote.js";
-import type { Memory } from "./seams.js";
+import type { InvocationContext, Memory } from "./seams.js";
 
 // The keyed read, over the one endpoint that already answers it. The query stays
 // on the far side: a second implementation here would be the one that drifts while
@@ -21,6 +21,21 @@ export interface RecallOptions {
 // A read this slow has already cost more than it can be worth: it opens the run's
 // first turn, and what it returns only reorders what to look at first.
 const RECALL_TIMEOUT_MS = 10_000;
+const MANAGED_RECALL = defineTool({
+  id: RECALL_TOOL,
+  description: "Read tenant-local episodic memory through the managed gateway",
+  parameters: {},
+  async execute() {
+    throw new Error("managed episodic memory must execute at the capability gateway");
+  },
+}, { maxRows: 1, timeoutMs: RECALL_TIMEOUT_MS });
+
+export type ManagedRecallAuthorize = (
+  tool: RegisteredTool,
+  args: Record<string, unknown>,
+  signal?: AbortSignal,
+  context?: InvocationContext,
+) => Promise<ToolResult>;
 
 function refuse(detail: string): Error {
   return new Error(`the keyed read did not answer: ${detail}`);
@@ -95,6 +110,33 @@ export function httpRecall(base: Memory, options: RecallOptions): Memory {
       } finally {
         held.release();
       }
+    },
+  };
+}
+
+/**
+ * Route managed episodic reads through the same exact-grant boundary as tools.
+ * The logical ID is stable for a retry of this run-start read and differs when
+ * the run, key set, or freshness snapshot differs.
+ */
+export function managedRecall(base: Memory, authorize: ManagedRecallAuthorize): Memory {
+  return {
+    ...base,
+    entities: async ({ keys, asOf, runId, signal }) => {
+      if (keys.length === 0) return emptyRecall(keys, asOf);
+      const args = {
+        entity_keys: [...keys],
+        as_of: asOf,
+        caller_kind: "run",
+        caller_id: runId,
+      };
+      const result = await authorize(
+        MANAGED_RECALL,
+        args,
+        signal,
+        { logicalId: `memory:${runId}:${asOf}:${[...keys].sort().join("\u001f")}` },
+      );
+      return recalled(result, keys);
     },
   };
 }

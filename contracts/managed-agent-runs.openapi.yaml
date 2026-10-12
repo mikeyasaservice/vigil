@@ -307,11 +307,12 @@ components:
         resolved_at: { type: string, format: date-time }
     ExecutionIdentity:
       type: object
-      required: [execution_id, tenant_id, deployment_id, workload_spiffe_id, workflow_id, workflow_digest, program_id, program_digest, capabilities, policy_version, revocation_epoch, issued_at, expires_at, jti, attestation]
+      required: [execution_id, tenant_id, deployment_id, deployment_incarnation, workload_spiffe_id, workflow_id, workflow_digest, program_id, program_digest, capabilities, policy_version, revocation_epoch, issued_at, expires_at, jti, attestation]
       properties:
         execution_id: { type: string }
         tenant_id: { type: string }
         deployment_id: { type: string }
+        deployment_incarnation: { type: string, format: uuid }
         workload_spiffe_id: { type: string, pattern: '^spiffe://' }
         worker_key_id: { type: string, deprecated: true }
         workflow_id: { type: string }
@@ -328,12 +329,17 @@ components:
     ToolGrant:
       type: object
       additionalProperties: false
-      required: [grant_id, execution_id, tenant_id, deployment_id, action, resource, argument_digest, policy_version, revocation_epoch, issued_at, expires_at, workload_key_id, claim_jti, max_rows, timeout_ms, signature]
+      required: [grant_id, execution_id, tenant_id, deployment_id, deployment_incarnation, workflow_id, workflow_digest, program_id, program_digest, action, resource, argument_digest, policy_version, revocation_epoch, issued_at, expires_at, workload_key_id, claim_jti, max_rows, timeout_ms, signature]
       properties:
         grant_id: { type: string }
         execution_id: { type: string }
         tenant_id: { type: string }
         deployment_id: { type: string }
+        deployment_incarnation: { type: string, format: uuid }
+        workflow_id: { type: string }
+        workflow_digest: { type: string }
+        program_id: { type: string }
+        program_digest: { type: string }
         action: { type: string }
         resource: { type: string }
         argument_digest: { type: string }
