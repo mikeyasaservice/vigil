@@ -57,6 +57,7 @@ def _verify_execution(request: EvaluateRequest) -> ExecutionIdentity:
         identity = ExecutionIdentity(
             execution_id=str(raw["execution_id"]), tenant_id=str(raw["tenant_id"]),
             deployment_id=str(raw["deployment_id"]),
+            deployment_incarnation=str(raw["deployment_incarnation"]),
             worker_key_id=str(raw.get("workload_spiffe_id") or raw["worker_key_id"]),
             workflow_id=str(raw["workflow_id"]), workflow_digest=str(raw["workflow_digest"]),
             program_id=str(raw["program_id"]), program_digest=str(raw["program_digest"]),

@@ -495,6 +495,7 @@ dbInit:
     - 43_dspy_optimization_lifecycle.sql
     - 44_runtime_role_hardening.sql
     - 45_claim_incarnation_binding.sql
+    - 46_runtime_role_search_path.sql
   resources:
     requests:
       cpu: 50m

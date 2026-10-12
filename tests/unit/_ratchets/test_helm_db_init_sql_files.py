@@ -70,6 +70,7 @@ def test_managed_security_schema_is_in_the_chart_bundle() -> None:
             "43_dspy_optimization_lifecycle.sql",
             "44_runtime_role_hardening.sql",
             "45_claim_incarnation_binding.sql",
+            "46_runtime_role_search_path.sql",
         )
     )
     for required in (
@@ -96,3 +97,12 @@ def test_sql_files_are_in_the_order_compose_applies_them() -> None:
     # A shell glob expands in sorted filename order, so that is compose's order.
     listed = _sql_files()
     assert listed == sorted(set(listed)), "dbInit.sqlFiles is out of order or repeats"
+
+
+def test_managed_migrations_fail_before_the_version_marker_is_written() -> None:
+    template = (REPO / "infra" / "helm" / "vigil" / "templates" / "db-init-job.yaml").read_text()
+    strict = 'if [ "$migration_number" -ge 41 ]; then'
+    marker = 'INSERT INTO _vigil_schema_versions'
+    assert strict in template
+    assert template.index(strict) < template.rindex(marker)
+    assert 'psql -v ON_ERROR_STOP=1 -f "/sql/$f"' in template

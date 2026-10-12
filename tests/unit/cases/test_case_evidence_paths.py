@@ -25,6 +25,15 @@ def test_hashes_a_file_inside_the_store(service):
     assert evidence.file_size == 6
 
 
+def test_default_store_uses_the_writable_state_directory(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIGIL_DIR", str(tmp_path / "state"))
+
+    service = CaseEvidenceService()
+
+    assert service.storage_path == tmp_path / "state" / "evidence"
+    assert service.storage_path.is_dir()
+
+
 @pytest.mark.parametrize(
     "escape", ["../secret.txt", "/etc/passwd", "a/../../secret.txt"]
 )

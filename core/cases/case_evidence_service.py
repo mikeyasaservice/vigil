@@ -22,14 +22,19 @@ logger = logging.getLogger(__name__)
 class CaseEvidenceService:
     """Service for managing case evidence."""
 
-    def __init__(self, storage_path: str = "./evidence"):
+    def __init__(self, storage_path: Optional[str] = None):
         """
         Initialize the evidence service.
 
         Args:
             storage_path: Path to evidence storage directory
         """
-        self.storage_path = Path(storage_path)
+        # Production containers use a read-only application root. VIGIL_DIR is
+        # the chart's tenant-local writable state mount; keeping the fallback
+        # preserves standalone behavior outside Helm.
+        self.storage_path = Path(
+            storage_path or (Path(os.getenv("VIGIL_DIR", ".")) / "evidence")
+        )
         self.storage_path.mkdir(parents=True, exist_ok=True)
 
     def calculate_file_hashes(self, file_path: Path) -> Dict[str, str]:

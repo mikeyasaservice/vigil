@@ -53,7 +53,7 @@ with get_db_session() as session:
       VALUES ('qualification-delete-control','Qualification delete control',:canary,
               'open','low',ARRAY[:tenant],'[]'::jsonb)
       ON CONFLICT (case_id) DO UPDATE SET description=EXCLUDED.description,
-        status='open',finding_ids='[]'::jsonb,updated_at=now()
+        status='open',updated_at=now()
     """), {"canary":canary,"tenant":tenant})
     session.execute(text("DELETE FROM case_comments WHERE case_id='qualification-collision'"))
     session.execute(text("DELETE FROM case_evidence WHERE case_id='qualification-collision'"))
@@ -489,7 +489,11 @@ def main() -> int:
         # run one authorized connector read, then mutate every grant binding.
         # Only the positive call may create a reservation/effect.
         for name, target in runtime.TARGETS.items():
-            runtime.kubectl(name, "exec", "-n", "vigil", "deploy/vigil-agent-worker", "-c", "agent-worker", "--", "kill", "-STOP", "1")
+            runtime.kubectl(
+                name, "exec", "-n", "vigil", "deploy/vigil-agent-worker",
+                "-c", "agent-worker", "--", "node", "-e",
+                "process.kill(1, 'SIGSTOP')",
+            )
             probe_started: dict[str, Any] | None = None
             before = backend_python(name, DB_STATE, {})
             try:
@@ -508,7 +512,11 @@ def main() -> int:
                 })
                 after_probe = backend_python(name, DB_STATE, {})
             finally:
-                runtime.kubectl(name, "exec", "-n", "vigil", "deploy/vigil-agent-worker", "-c", "agent-worker", "--", "kill", "-CONT", "1", check=False)
+                runtime.kubectl(
+                    name, "exec", "-n", "vigil", "deploy/vigil-agent-worker",
+                    "-c", "agent-worker", "--", "node", "-e",
+                    "process.kill(1, 'SIGCONT')", check=False,
+                )
             if probe_started is None:
                 raise RuntimeError("grant matrix did not create its positive control")
             runtime.wait_run(target, tokens[name], probe_started["run_id"])

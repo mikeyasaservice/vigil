@@ -9,6 +9,8 @@ region="${AWS_REGION:-us-east-1}"
 image_tag="${VIGIL_QUALIFICATION_IMAGE_TAG:-qual-20261011-r1}"
 backend_image_tag="${VIGIL_QUALIFICATION_BACKEND_IMAGE_TAG:-$image_tag}"
 agent_image_tag="${VIGIL_QUALIFICATION_AGENT_IMAGE_TAG:-$image_tag}"
+connector_image_tag="${VIGIL_QUALIFICATION_CONNECTOR_IMAGE_TAG:-$image_tag}"
+reasoner_image_tag="${VIGIL_QUALIFICATION_REASONER_IMAGE_TAG:-$image_tag}"
 spire_version="0.30.3"
 spire_crds_version="0.6.1"
 external_secrets_version="2.12.0"
@@ -187,12 +189,12 @@ managedExecution:
     replicaCount: 1
   connector:
     replicaCount: 1
-    image: { repository: $connector, tag: $image_tag }
+    image: { repository: $connector, tag: $connector_image_tag }
     builtinTools: get_finding,case_records,recall_entity
     bindingsJson: '{}'
   reasoner:
     replicaCount: 1
-    image: { repository: $reasoner, tag: $image_tag }
+    image: { repository: $reasoner, tag: $reasoner_image_tag }
 networkPolicies:
   enabled: true
   managedExecution: true

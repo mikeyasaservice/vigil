@@ -76,15 +76,11 @@ spec:
               # already been applied. Safe to run on every install/upgrade.
               psql -v ON_ERROR_STOP=1 -c "CREATE TABLE IF NOT EXISTS _vigil_schema_versions (filename TEXT PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT now());"
 
-              # NOTE: we deliberately do NOT use ON_ERROR_STOP for the migration
-              # files. The files under infra/database/init/ include both schema-setup
-              # SQL (CREATE EXTENSION, etc.) and per-feature ALTER TABLE
-              # migrations that reference tables created later by SQLAlchemy's
-              # create_all() on backend startup. docker-compose's
-              # /docker-entrypoint-initdb.d runs with the same laxness; treating
-              # "relation does not exist" as fatal here would regress parity.
-              # The marker table still records what's been applied so idempotency
-              # works on upgrade.
+              # Legacy migrations include ALTERs for tables created later by
+              # SQLAlchemy and retain their historical warning behavior. Managed
+              # security migrations (41+) are self-contained trust-boundary
+              # changes: any SQL error must fail the release and must never write
+              # a schema-version marker.
               apply() {
                 local f="$1"
                 # Marker-table check goes FIRST so already-applied filenames
@@ -128,7 +124,12 @@ spec:
                   return 1
                 fi
                 echo "APPLY $f"
-                if psql -f "/sql/$f"; then
+                local migration_number
+                migration_number="${f%%_*}"
+                if [ "$migration_number" -ge 41 ]; then
+                  psql -v ON_ERROR_STOP=1 -f "/sql/$f"
+                  echo "  applied managed migration cleanly"
+                elif psql -f "/sql/$f"; then
                   echo "  applied cleanly"
                 else
                   echo "  applied with warnings (likely tables not yet created by ORM — safe to ignore on first install)"
